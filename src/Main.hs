@@ -51,6 +51,54 @@ data Users = Users
   }
 makeLenses ''Users
 
+
+----------------------------------------------------------------------
+-- global state
+
+data Environment = Environment
+  { registeredUsers :: SV.TVar Users
+  }
+
+newEnv :: IO Environment
+newEnv = do
+  regUsers <- atomically $ SV.newTVar (Users Map.empty Map.empty)
+  return $ Environment regUsers
+
+
+----------------------------------------------------------------------
+-- Register Data
+
+data Registration = Registration
+  { registrationName :: UserName
+  } deriving (Eq, Show, Generic)
+
+
+instance FromJSON Registration
+
+
+----------------------------------------------------------------------
+-- Messages
+
+data Message = Message
+  { _msgSender :: UserName
+  , _msgText   :: Text
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON Message
+
+makeLenses ''Message
+
+
+data SendMessage = SendMessage
+  { _sendSender :: UserId
+  , _sendText   :: Text
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON SendMessage
+
+makeLenses ''SendMessage
+
+
 ----------------------------------------------------------------------
 -- entry point
 
@@ -64,16 +112,21 @@ main = do
 
 servantApp :: Environment -> Application
 servantApp env =
-  serve (Proxy :: Proxy UserAPI) $ enter (chatMToHandler env) userHandler
+  serve (Proxy :: Proxy API) $ enter (chatMToHandler env) (userHandler :<|> messagesHandler)
 
 ----------------------------------------------------------------------
 -- Servant-API
+
+type API = UserAPI :<|> MessageAPI
 
 type UserAPI =
   "users" :>
   (Capture "userid" UserId :> Get '[JSON] User
    :<|> "register" :> ReqBody '[JSON] Registration :> Post '[JSON] UserId)
 
+
+type MessageAPI =
+  "messages" :> ReqBody '[JSON] SendMessage :> PostNoContent '[JSON] NoContent
 
 ----------------------------------------------------------------------
 -- Servant-Handler
@@ -91,20 +144,20 @@ userHandler = getUserHandler :<|> registerUserHandler
       registerUser . registrationName
 
 
+messagesHandler :: ServerT MessageAPI ChatM
+messagesHandler sendMsg = do
+  foundUser <- getUser (view sendSender sendMsg)
+  case foundUser of
+    Just user -> do
+      liftIO $ print sendMsg
+      return NoContent
+    Nothing ->
+      error "unknown user"
+
+
 chatMToHandler :: Environment -> ChatM :~> Handler
 chatMToHandler env = NT (liftIO . flip R.runReaderT env)
 
-----------------------------------------------------------------------
--- global state
-
-data Environment = Environment
-  { registeredUsers :: SV.TVar Users
-  }
-
-newEnv :: IO Environment
-newEnv = do
-  regUsers <- atomically $ SV.newTVar (Users Map.empty Map.empty)
-  return $ Environment regUsers
 
 ----------------------------------------------------------------------
 -- monad stack
@@ -140,13 +193,3 @@ modifyRegisteredUsers modify =
 
 liftSTM :: STM a -> ChatM a
 liftSTM m = liftIO (atomically m)
-
-----------------------------------------------------------------------
--- Register Data
-
-data Registration = Registration
-  { registrationName :: UserName
-  } deriving (Eq, Show, Generic)
-
-
-instance FromJSON Registration
