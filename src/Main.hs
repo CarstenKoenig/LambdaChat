@@ -72,7 +72,7 @@ servantApp env =
 type UserAPI =
   "users" :>
   (Capture "userid" UserId :> Get '[JSON] User
-   :<|> "register" :> QueryParam "username" UserName :> Post '[JSON] UserId)
+   :<|> "register" :> ReqBody '[JSON] Registration :> Post '[JSON] UserId)
 
 
 ----------------------------------------------------------------------
@@ -87,8 +87,8 @@ userHandler = getUserHandler :<|> registerUserHandler
         Just user -> return user
         Nothing   -> error "user not found"
 
-    registerUserHandler (Just userName) = do
-      registerUser userName
+    registerUserHandler =
+      registerUser . registrationName
 
 
 chatMToHandler :: Environment -> ChatM :~> Handler
@@ -145,7 +145,7 @@ liftSTM m = liftIO (atomically m)
 -- Register Data
 
 data Registration = Registration
-  { _registrationName :: UserName
+  { registrationName :: UserName
   } deriving (Eq, Show, Generic)
 
 
