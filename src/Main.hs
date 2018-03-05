@@ -15,7 +15,7 @@ import qualified Control.Monad.Reader as R
 import Data.Aeson (ToJSON, FromJSON, encode)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromJust)
 import Data.Proxy (Proxy(..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -54,22 +54,6 @@ data Users = Users
   , _userIdFromName :: Map UserName UserId
   }
 makeLenses ''Users
-
-
-----------------------------------------------------------------------
--- global state
-
-data Environment = Environment
-  { registeredUsers :: SV.TVar Users
-  , messageChannel  :: SC.TChan Message
-  }
-
-newEnv :: IO Environment
-newEnv = do
-  regUsers <- SV.newTVarIO (Users Map.empty Map.empty)
-  chan <- SC.newBroadcastTChanIO
-  return $ Environment regUsers chan
-
 
 ----------------------------------------------------------------------
 -- Register Data
@@ -115,6 +99,28 @@ instance FromJSON WhisperMessage
 
 makeLenses ''WhisperMessage
 
+
+----------------------------------------------------------------------
+-- global state
+
+data Environment = Environment
+  { registeredUsers :: SV.TVar Users
+  , messageChannel  :: SC.TChan ChanMessage
+  }
+
+
+newEnv :: IO Environment
+newEnv = do
+  regUsers <- SV.newTVarIO (Users Map.empty Map.empty)
+  chan <- SC.newBroadcastTChanIO
+  return $ Environment regUsers chan
+
+
+data ChanMessage
+  = Broadcast UserName Text
+  | Whisper UserId UserName Text
+
+
 ----------------------------------------------------------------------
 -- entry point
 
@@ -146,7 +152,7 @@ type MessageAPI =
   "messages" :>
   (ReqBody '[JSON] SendMessage :> PostNoContent '[JSON] NoContent
    :<|> "whisper" :> ReqBody '[JSON] WhisperMessage :> PostNoContent '[JSON] NoContent
-   :<|> WebSocket
+   :<|> Capture "userid" UserId :> WebSocket
   )
 
 
@@ -175,7 +181,7 @@ messageReceivedHandler sendMsg = do
   foundUser <- getUser (sendMsg^.sendSender)
   case foundUser of
     Just user -> do
-      broadcastMessage (Message (user^.userName) (sendMsg^.sendText))
+      broadcastMessage (user^.userName) (sendMsg^.sendText)
       return NoContent
     Nothing ->
       error "unknown user"
@@ -183,24 +189,30 @@ messageReceivedHandler sendMsg = do
 
 whisperReceiveHandler :: WhisperMessage -> ChatM NoContent
 whisperReceiveHandler sendMsg = do
-  foundUser <- getUser (sendMsg^.whispSender)
-  case foundUser of
-    Just user -> do
-      -- todo only send to the right channel
-
+  foundSender <- getUser (sendMsg^.whispSender)
+  foundReceiverId <- getUserId (sendMsg^.whispReceiver)
+  case (foundSender, foundReceiverId) of
+    (Just sender, Just receiverId) -> do
+      whisperMessage receiverId (sender^.userName) (sendMsg^.whispText)
       return NoContent
-    Nothing ->
-      error "unknown user"
+    _ ->
+      error "unknown sender or receiver"
 
 
-messageWebsocketHandler :: Connection -> ChatM ()
-messageWebsocketHandler connection = do
-    liftIO $ WS.forkPingThread connection 10
-    broadcastChan <- R.asks messageChannel
-    chan <- liftSTM $ SC.dupTChan broadcastChan
-    liftIO $ forever $ do
-        message <- atomically $ SC.readTChan chan
-        WS.sendTextData connection (encode message)
+messageWebsocketHandler :: UserId -> Connection -> ChatM ()
+messageWebsocketHandler userId connection = do
+  liftIO $ WS.forkPingThread connection 10
+  broadcastChan <- R.asks messageChannel
+  chan <- liftSTM $ SC.dupTChan broadcastChan
+  liftIO $ forever $ do
+    msg <- atomically $ SC.readTChan chan
+    case msg of
+      Broadcast senderName text ->
+        WS.sendTextData connection (encode $ Message senderName text)
+      Whisper receiverId senderName text
+        | receiverId == userId ->
+          WS.sendTextData connection (encode $ Message senderName text)
+        | otherwise -> pure ()
 
 
 chatMToHandler :: Environment -> ChatM :~> Handler
@@ -217,6 +229,10 @@ getUser :: UserId -> ChatM (Maybe User)
 getUser userId = readRegisteredUsers (view $ userFromId . at userId)
 
 
+getUserId :: UserName -> ChatM (Maybe UserId)
+getUserId user = readRegisteredUsers (view $ userIdFromName . at user)
+
+
 registerUser :: UserName -> ChatM UserId
 registerUser name = do
   alreadyRegistered <- readRegisteredUsers (isJust . view (userIdFromName . at name))
@@ -229,9 +245,15 @@ registerUser name = do
       return newId
 
 
-broadcastMessage :: Message -> ChatM ()
-broadcastMessage msg =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) msg)
+broadcastMessage :: UserName -> Text -> ChatM ()
+broadcastMessage userName text =
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Broadcast userName text))
+
+
+whisperMessage :: UserId -> UserName -> Text -> ChatM ()
+whisperMessage receiverId userName text =
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Whisper receiverId userName text))
+
 
 readRegisteredUsers :: (Users -> a) -> ChatM a
 readRegisteredUsers f =
