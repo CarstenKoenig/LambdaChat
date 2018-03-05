@@ -1,0 +1,30 @@
+name:                LambdaChat
+version:             0.1.0.0
+synopsis:            simple Chat server as an example/target for Spartakiade 2018
+homepage:            https://github.com/CarstenKoenig/LambdaChat#readme
+license:             MIT
+author:              Carsten König
+maintainer:          Carsten.Koenig@hotmail.de
+copyright:           none
+category:            fun
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - aeson
+  - containers
+  - lens
+  - mtl
+  - servant
+  - servant-server
+  - stm
+  - text
+  - uuid
+  - wai
+  - warp
+
+executables:
+  LambdaChat:
+    source-dirs:      src
+    main:             Main.hs
