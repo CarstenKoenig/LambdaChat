@@ -7,8 +7,9 @@ module Main where
 import Control.Arrow ((***))
 import Control.Concurrent.STM (STM, atomically)
 import qualified Control.Concurrent.STM as STM
+import qualified Control.Concurrent.STM.TChan as SC
 import qualified Control.Concurrent.STM.TVar as SV
-import Control.Lens (view, over, set, at, _1, _2, makeLenses)
+import Control.Lens (view, over, set, at, _1, _2, makeLenses, (^.))
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
 import Data.Aeson (ToJSON, FromJSON)
@@ -37,6 +38,7 @@ data User = User
   , _userName :: UserName
   } deriving (Eq, Show, Generic)
 
+makeLenses ''User
 
 instance ToJSON User
 
@@ -57,12 +59,14 @@ makeLenses ''Users
 
 data Environment = Environment
   { registeredUsers :: SV.TVar Users
+  , messageChannel  :: SC.TChan Message
   }
 
 newEnv :: IO Environment
 newEnv = do
-  regUsers <- atomically $ SV.newTVar (Users Map.empty Map.empty)
-  return $ Environment regUsers
+  regUsers <- SV.newTVarIO (Users Map.empty Map.empty)
+  chan <- SC.newBroadcastTChanIO
+  return $ Environment regUsers chan
 
 
 ----------------------------------------------------------------------
@@ -146,10 +150,10 @@ userHandler = getUserHandler :<|> registerUserHandler
 
 messagesHandler :: ServerT MessageAPI ChatM
 messagesHandler sendMsg = do
-  foundUser <- getUser (view sendSender sendMsg)
+  foundUser <- getUser (sendMsg^.sendSender)
   case foundUser of
     Just user -> do
-      liftIO $ print sendMsg
+      broadcastMessage (Message (user^.userName) (sendMsg^.sendText))
       return NoContent
     Nothing ->
       error "unknown user"
@@ -180,6 +184,10 @@ registerUser name = do
       modifyRegisteredUsers (set (userFromId . at newId) (Just user) . set (userIdFromName . at name) (Just newId))
       return newId
 
+
+broadcastMessage :: Message -> ChatM ()
+broadcastMessage msg =
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) msg)
 
 readRegisteredUsers :: (Users -> a) -> ChatM a
 readRegisteredUsers f =
