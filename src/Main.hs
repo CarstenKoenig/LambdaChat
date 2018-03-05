@@ -4,15 +4,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
-import Control.Arrow ((***))
 import Control.Concurrent.STM (STM, atomically)
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Concurrent.STM.TChan as SC
 import qualified Control.Concurrent.STM.TVar as SV
 import Control.Lens (view, over, set, at, _1, _2, makeLenses, (^.))
+import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
-import Data.Aeson (ToJSON, FromJSON)
+import Data.Aeson (ToJSON, FromJSON, encode)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
@@ -24,8 +24,10 @@ import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import Network.WebSockets.Connection (Connection)
+import qualified Network.WebSockets.Connection as WS
 import Servant
-
+import Servant.API.WebSocket
 
 ----------------------------------------------------------------------
 -- User Data
@@ -130,7 +132,10 @@ type UserAPI =
 
 
 type MessageAPI =
-  "messages" :> ReqBody '[JSON] SendMessage :> PostNoContent '[JSON] NoContent
+  "messages" :>
+  (ReqBody '[JSON] SendMessage :> PostNoContent '[JSON] NoContent
+   :<|> WebSocket)
+
 
 ----------------------------------------------------------------------
 -- Servant-Handler
@@ -149,7 +154,11 @@ userHandler = getUserHandler :<|> registerUserHandler
 
 
 messagesHandler :: ServerT MessageAPI ChatM
-messagesHandler sendMsg = do
+messagesHandler = messageReceivedHandler :<|> messageWebsocketHandler
+
+
+messageReceivedHandler :: SendMessage -> ChatM NoContent
+messageReceivedHandler sendMsg = do
   foundUser <- getUser (sendMsg^.sendSender)
   case foundUser of
     Just user -> do
@@ -157,6 +166,16 @@ messagesHandler sendMsg = do
       return NoContent
     Nothing ->
       error "unknown user"
+
+
+messageWebsocketHandler :: Connection -> ChatM ()
+messageWebsocketHandler connection = do
+    liftIO $ WS.forkPingThread connection 10
+    broadcastChan <- R.asks messageChannel
+    chan <- liftSTM $ SC.dupTChan broadcastChan
+    liftIO $ forever $ do
+        message <- atomically $ SC.readTChan chan
+        WS.sendTextData connection (encode message)
 
 
 chatMToHandler :: Environment -> ChatM :~> Handler

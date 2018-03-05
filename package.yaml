@@ -18,11 +18,13 @@ dependencies:
   - mtl
   - servant
   - servant-server
+  - servant-websockets
   - stm
   - text
   - uuid
   - wai
   - warp
+  - websockets
 
 executables:
   LambdaChat:

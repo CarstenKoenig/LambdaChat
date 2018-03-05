@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5acc78327fc1e7702d7deca252317d5484f4141f9e53a7c1193cebb8124e4e03
+-- hash: 5546ed47e78293d5dba4ea2c0f449766f9a38965d99199a1c8d9641f11b15a8d
 
 name:           LambdaChat
 version:        0.1.0.0
@@ -32,11 +32,13 @@ executable LambdaChat
     , mtl
     , servant
     , servant-server
+    , servant-websockets
     , stm
     , text
     , uuid
     , wai
     , warp
+    , websockets
   other-modules:
       Paths_LambdaChat
   default-language: Haskell2010
