@@ -105,6 +105,16 @@ instance FromJSON SendMessage
 makeLenses ''SendMessage
 
 
+data WhisperMessage = WhisperMessage
+  { _whispSender   :: UserId
+  , _whispReceiver :: UserName
+  , _whispText     :: Text
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON WhisperMessage
+
+makeLenses ''WhisperMessage
+
 ----------------------------------------------------------------------
 -- entry point
 
@@ -128,13 +138,16 @@ type API = UserAPI :<|> MessageAPI
 type UserAPI =
   "users" :>
   (Capture "userid" UserId :> Get '[JSON] User
-   :<|> "register" :> ReqBody '[JSON] Registration :> Post '[JSON] UserId)
+   :<|> "register" :> ReqBody '[JSON] Registration :> Post '[JSON] UserId
+  )
 
 
 type MessageAPI =
   "messages" :>
   (ReqBody '[JSON] SendMessage :> PostNoContent '[JSON] NoContent
-   :<|> WebSocket)
+   :<|> "whisper" :> ReqBody '[JSON] WhisperMessage :> PostNoContent '[JSON] NoContent
+   :<|> WebSocket
+  )
 
 
 ----------------------------------------------------------------------
@@ -154,7 +167,7 @@ userHandler = getUserHandler :<|> registerUserHandler
 
 
 messagesHandler :: ServerT MessageAPI ChatM
-messagesHandler = messageReceivedHandler :<|> messageWebsocketHandler
+messagesHandler = messageReceivedHandler :<|> whisperReceiveHandler :<|> messageWebsocketHandler
 
 
 messageReceivedHandler :: SendMessage -> ChatM NoContent
@@ -163,6 +176,18 @@ messageReceivedHandler sendMsg = do
   case foundUser of
     Just user -> do
       broadcastMessage (Message (user^.userName) (sendMsg^.sendText))
+      return NoContent
+    Nothing ->
+      error "unknown user"
+
+
+whisperReceiveHandler :: WhisperMessage -> ChatM NoContent
+whisperReceiveHandler sendMsg = do
+  foundUser <- getUser (sendMsg^.whispSender)
+  case foundUser of
+    Just user -> do
+      -- todo only send to the right channel
+
       return NoContent
     Nothing ->
       error "unknown user"
