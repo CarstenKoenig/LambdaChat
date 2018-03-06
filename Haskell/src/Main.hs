@@ -147,13 +147,13 @@ main = do
   where
     policy = Cors.simpleCorsResourcePolicy
         { Cors.corsRequestHeaders = ["Content-Type"]
-        , Cors.corsMethods = "POST" : Cors.simpleMethods }  
+        , Cors.corsMethods = "POST" : Cors.simpleMethods }
 
 
 servantApp :: Environment -> Application
-servantApp env = 
-  serve 
-    (Proxy :: Proxy (API :<|> SwaggerAPI)) $ 
+servantApp env =
+  serve
+    (Proxy :: Proxy (API :<|> SwaggerAPI)) $
     enter (chatMToHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler
 
 ----------------------------------------------------------------------
@@ -321,7 +321,7 @@ instance Sw.ToSchema UserInfo where
   declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
     & mapped.Sw.schema.Sw.description ?~ "Userinfo example"
     & mapped.Sw.schema.Sw.example ?~ toJSON (UserInfo "Max Mustermann")
-    
+
 
 instance Sw.ToSchema Login where
   declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
@@ -333,7 +333,7 @@ instance Sw.ToSchema SendMessage where
   declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
     & mapped.Sw.schema.Sw.description ?~ "This is how you would share your wisdom"
     & mapped.Sw.schema.Sw.example ?~ toJSON (SendMessage (fromJust $ UUID.fromText "a90d6e28-621d-4b23-b8d7-2fc045580846") "True == False")
-    
+
 
 instance Sw.ToSchema WhisperMessage where
   declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
@@ -342,4 +342,4 @@ instance Sw.ToSchema WhisperMessage where
 
 
 instance HasSwagger WebSocket where
-  toSwagger _ = mempty & Sw.paths . at "/" ?~ mempty        
+  toSwagger _ = mempty & Sw.paths . at "/" ?~ mempty
