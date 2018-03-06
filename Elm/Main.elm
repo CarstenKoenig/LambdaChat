@@ -41,7 +41,9 @@ type alias LoginModel =
 
 
 type alias ChatModel =
-    {}
+    { input : String
+    , messages : List String
+    }
 
 
 type Msg
@@ -51,6 +53,9 @@ type Msg
     | Logout
     | InputLoginName String
     | InputLoginPassword String
+    | InputMessage String
+    | SendMessage
+    | SendMessageResponse (Result Http.Error ())
     | DismissError
 
 
@@ -70,7 +75,7 @@ initLogin =
 
 initChat : View
 initChat =
-    Chat {}
+    Chat { input = "", messages = [] }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -149,6 +154,32 @@ updateLogin msg loginModel model =
 updateChat : Msg -> ChatModel -> Model -> ( Model, Cmd Msg )
 updateChat msg chatModel model =
     case msg of
+        InputMessage inp ->
+            { chatModel | input = inp }
+                ! []
+                |> setView Chat model
+
+        SendMessage ->
+            case model.user of
+                Nothing ->
+                    model ! []
+
+                Just user ->
+                    let
+                        cmd =
+                            Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id chatModel.input)
+                    in
+                        { chatModel | input = "" }
+                            ! [ cmd ]
+                            |> setView Chat model
+
+        SendMessageResponse (Ok ()) ->
+            model ! []
+
+        SendMessageResponse (Err err) ->
+            { model | error = Just (toString err) }
+                ! []
+
         _ ->
             model ! []
 
@@ -260,7 +291,36 @@ viewChat model =
     H.div
         []
         [ H.h1 [] [ H.text "CHAT" ]
+        , viewInput model
+        , viewMessages model.messages
         ]
+
+
+viewInput : ChatModel -> Html Msg
+viewInput model =
+    H.form
+        [ Attr.class "form-inline", Ev.onSubmit SendMessage ]
+        [ H.input
+            [ Attr.type_ "text"
+            , Attr.class "form-control mr-sm-2"
+            , Attr.placeholder "message"
+            , Ev.onInput InputMessage
+            , Attr.value model.input
+            ]
+            []
+        , H.button
+            [ Attr.type_ "submit"
+            , Attr.class "btn btn-outline-success my-2 my-sm-0"
+            ]
+            [ H.text "send" ]
+        ]
+
+
+viewMessages : List String -> Html Msg
+viewMessages msgs =
+    H.ul
+        []
+        (List.map (H.text >> List.singleton >> H.li []) msgs)
 
 
 setView : (a -> View) -> Model -> ( a, cmd ) -> ( Model, cmd )

@@ -1,4 +1,4 @@
-module Api.Chat exposing (Login, User, UserId, loginRequest, userInfoRequest)
+module Api.Chat exposing (Login, User, UserId, loginRequest, userInfoRequest, postMessage)
 
 import Http
 import Json.Decode as Json
@@ -41,3 +41,23 @@ loginRequest baseUrl login =
                 ]
     in
         Http.post (baseUrl ++ "/users/login") (Http.jsonBody <| loginBody) (Json.string |> Json.map UserId)
+
+
+postMessage : String -> UserId -> String -> Http.Request ()
+postMessage baseUrl (UserId id) message =
+    let
+        msg =
+            Enc.object
+                [ ( "_sendSender", Enc.string id )
+                , ( "_sendText", Enc.string message )
+                ]
+    in
+        Http.request
+            { method = "POST"
+            , headers = []
+            , url = baseUrl ++ "/messages"
+            , body = Http.jsonBody msg
+            , expect = Http.expectStringResponse (always <| Ok ())
+            , timeout = Nothing
+            , withCredentials = False
+            }
