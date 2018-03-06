@@ -1,33 +1,33 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Control.Concurrent.STM (STM, atomically)
-import qualified Control.Concurrent.STM as STM
 import qualified Control.Concurrent.STM.TChan as SC
 import qualified Control.Concurrent.STM.TVar as SV
-import Control.Lens (view, over, set, at, _1, _2, makeLenses, (^.))
+import Control.Lens (view, set, at, makeLenses, (^.))
+import Data.Maybe (fromJust)
 import Control.Monad (forever)
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
 import Data.Aeson (ToJSON, FromJSON, encode)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, fromJust)
 import Data.Proxy (Proxy(..))
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
-import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Network.WebSockets.Connection (Connection)
 import qualified Network.WebSockets.Connection as WS
 import Servant
 import Servant.API.WebSocket
+import Servant.Server (err401, err404)
 
 ----------------------------------------------------------------------
 -- User Data
@@ -36,13 +36,12 @@ type UserId = UUID
 type UserName = Text
 
 data User = User
-  { _userId   :: UserId
-  , _userName :: UserName
+  { _userId       :: UserId
+  , _userName     :: UserName
+  , _userPassword :: Text
   } deriving (Eq, Show, Generic)
 
 makeLenses ''User
-
-instance ToJSON User
 
 
 newUserId :: IO UserId
@@ -50,20 +49,27 @@ newUserId = URnd.nextRandom
 
 
 data Users = Users
-  { _userFromId :: Map UserId User
+  { _userFromId     :: Map UserId User
   , _userIdFromName :: Map UserName UserId
   }
 makeLenses ''Users
 
-----------------------------------------------------------------------
--- Register Data
 
-data Registration = Registration
-  { registrationName :: UserName
+newtype UserInfo = UserInfo { username :: UserName }
+  deriving (Eq, Show, Generic)
+
+instance ToJSON UserInfo
+
+----------------------------------------------------------------------
+-- Login Data
+
+data Login = Login
+  { loginName     :: UserName
+  , loginPassword :: Text
   } deriving (Eq, Show, Generic)
 
 
-instance FromJSON Registration
+instance FromJSON Login
 
 
 ----------------------------------------------------------------------
@@ -143,8 +149,8 @@ type API = UserAPI :<|> MessageAPI
 
 type UserAPI =
   "users" :>
-  (Capture "userid" UserId :> Get '[JSON] User
-   :<|> "register" :> ReqBody '[JSON] Registration :> Post '[JSON] UserId
+  (Capture "userid" UserId :> Get '[JSON] UserInfo
+   :<|> "login" :> ReqBody '[JSON] Login :> Post '[JSON] UserId
   )
 
 
@@ -160,16 +166,16 @@ type MessageAPI =
 -- Servant-Handler
 
 userHandler :: ServerT UserAPI ChatM
-userHandler = getUserHandler :<|> registerUserHandler
+userHandler = getUserHandler :<|> loginHandler
   where
-    getUserHandler userId = do
-      res <- getUser userId
+    getUserHandler uId = do
+      res <- getUser uId
       case res of
-        Just user -> return user
-        Nothing   -> error "user not found"
+        Just user -> return $ UserInfo (user^.userName)
+        Nothing   -> throwError $ err404 { errBody = "user not found" }
 
-    registerUserHandler =
-      registerUser . registrationName
+    loginHandler reg =
+      loginUser (loginName reg) (loginPassword reg)
 
 
 messagesHandler :: ServerT MessageAPI ChatM
@@ -184,7 +190,7 @@ messageReceivedHandler sendMsg = do
       broadcastMessage (user^.userName) (sendMsg^.sendText)
       return NoContent
     Nothing ->
-      error "unknown user"
+      throwError $ err404 { errBody = "user not found" }
 
 
 whisperReceiveHandler :: WhisperMessage -> ChatM NoContent
@@ -196,63 +202,71 @@ whisperReceiveHandler sendMsg = do
       whisperMessage receiverId (sender^.userName) (sendMsg^.whispText)
       return NoContent
     _ ->
-      error "unknown sender or receiver"
+      throwError $ err404 { errBody = "unknown sender or receiver" }
 
 
 messageWebsocketHandler :: UserId -> Connection -> ChatM ()
-messageWebsocketHandler userId connection = do
+messageWebsocketHandler uId connection = do
+  uName <- fromJust . fmap (view userName) <$> getUser uId
   liftIO $ WS.forkPingThread connection 10
   broadcastChan <- R.asks messageChannel
   chan <- liftSTM $ SC.dupTChan broadcastChan
   liftIO $ forever $ do
     msg <- atomically $ SC.readTChan chan
     case msg of
-      Broadcast senderName text ->
-        WS.sendTextData connection (encode $ Message senderName text)
+      Broadcast senderName text
+        | senderName /= uName ->
+          WS.sendTextData connection (encode $ Message senderName text)
+        | otherwise -> pure ()
       Whisper receiverId senderName text
-        | receiverId == userId ->
+        | receiverId == uId && senderName /= uName ->
           WS.sendTextData connection (encode $ Message senderName text)
         | otherwise -> pure ()
 
 
 chatMToHandler :: Environment -> ChatM :~> Handler
-chatMToHandler env = NT (liftIO . flip R.runReaderT env)
+chatMToHandler env = NT (`R.runReaderT` env)
 
 
 ----------------------------------------------------------------------
 -- monad stack
 
-type ChatM = R.ReaderT Environment IO
+type ChatM = R.ReaderT Environment Handler
 
 
 getUser :: UserId -> ChatM (Maybe User)
-getUser userId = readRegisteredUsers (view $ userFromId . at userId)
+getUser uId = readRegisteredUsers (view $ userFromId . at uId)
 
 
 getUserId :: UserName -> ChatM (Maybe UserId)
 getUserId user = readRegisteredUsers (view $ userIdFromName . at user)
 
 
-registerUser :: UserName -> ChatM UserId
-registerUser name = do
-  alreadyRegistered <- readRegisteredUsers (isJust . view (userIdFromName . at name))
-  if alreadyRegistered
-    then error "there is already a user with this name registered"
-    else do
+loginUser :: UserName -> Text -> ChatM UserId
+loginUser name password = do
+  alreadyRegisteredId <- readRegisteredUsers (view (userIdFromName . at name))
+  alreadyRegistered <- maybe (return Nothing) getUser alreadyRegisteredId
+  case alreadyRegistered of
+    Nothing -> do
       newId <- liftIO newUserId
-      let user = User newId name
+      let user = User newId name password
       modifyRegisteredUsers (set (userFromId . at newId) (Just user) . set (userIdFromName . at name) (Just newId))
       return newId
+    Just found
+      | found^.userPassword == password ->
+          return $ found^.userId
+      | otherwise ->
+        throwError $ err401 { errBody = "there is already a user with this name logged in and you don't know his password" }
 
 
 broadcastMessage :: UserName -> Text -> ChatM ()
-broadcastMessage userName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Broadcast userName text))
+broadcastMessage senderName text =
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Broadcast senderName text))
 
 
 whisperMessage :: UserId -> UserName -> Text -> ChatM ()
-whisperMessage receiverId userName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Whisper receiverId userName text))
+whisperMessage receiverId senderName text =
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Whisper receiverId senderName text))
 
 
 readRegisteredUsers :: (Users -> a) -> ChatM a
