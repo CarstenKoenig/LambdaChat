@@ -163,7 +163,8 @@ type API = UserAPI :<|> MessageAPI
 
 type UserAPI =
   "users" :>
-  (Capture "userid" UserId :> Get '[JSON] UserInfo
+  (Get '[JSON] [UserInfo]
+   :<|> Capture "userid" UserId :> Get '[JSON] UserInfo
    :<|> "login" :> ReqBody '[JSON] Login :> Post '[JSON] UserId
   )
 
@@ -180,8 +181,10 @@ type MessageAPI =
 -- Servant-Handler
 
 userHandler :: ServerT UserAPI ChatM
-userHandler = getUserHandler :<|> loginHandler
+userHandler = allUsers :<|> getUserHandler :<|> loginHandler
   where
+    allUsers =
+      listAllUsers
     getUserHandler uId = do
       res <- getUser uId
       case res of
@@ -247,6 +250,10 @@ chatMToHandler env = NT (`R.runReaderT` env)
 
 type ChatM = R.ReaderT Environment Handler
 
+listAllUsers :: ChatM [UserInfo]
+listAllUsers =
+  readRegisteredUsers (fmap toInfo . Map.elems . _userFromId)
+  where toInfo user = UserInfo (user^.userName)
 
 getUser :: UserId -> ChatM (Maybe User)
 getUser uId = readRegisteredUsers (view $ userFromId . at uId)
