@@ -14,6 +14,7 @@ dependencies:
   - base >= 4.7 && < 5
   - aeson
   - containers
+  - http-types
   - lens
   - mtl
   - servant
@@ -25,6 +26,7 @@ dependencies:
   - text
   - uuid
   - wai
+  - wai-cors
   - warp
   - websockets
 

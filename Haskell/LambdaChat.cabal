@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 438f8aac2a018d9e8bd48f6983a2c8d930562367b128ffa5aa28df8fed941e0b
+-- hash: f20eee018393dcd70a7a1ffb2a302e73f48614f21d3941a8612d9d42d38b945e
 
 name:           LambdaChat
 version:        0.1.0.0
@@ -28,6 +28,7 @@ executable LambdaChat
       aeson
     , base >=4.7 && <5
     , containers
+    , http-types
     , lens
     , mtl
     , servant
@@ -39,6 +40,7 @@ executable LambdaChat
     , text
     , uuid
     , wai
+    , wai-cors
     , warp
     , websockets
   other-modules:

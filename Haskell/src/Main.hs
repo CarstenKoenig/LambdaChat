@@ -25,14 +25,15 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
+import Network.HTTP.Types.Method (methodOptions)
 import qualified Network.Wai.Handler.Warp as Warp
+import qualified Network.Wai.Middleware.Cors as Cors
 import Network.WebSockets.Connection (Connection)
 import qualified Network.WebSockets.Connection as WS
 import Servant
 import Servant.API.WebSocket
 import Servant.Server (err401, err404)
 import Servant.Swagger
-
 ----------------------------------------------------------------------
 -- User Data
 
@@ -142,7 +143,11 @@ main = do
   env <- newEnv
 
   putStrLn "serving app on http://localhost:8081"
-  Warp.run 8081 $ servantApp env
+  Warp.run 8081 $ Cors.cors (const $ Just policy) $ servantApp env
+  where
+    policy = Cors.simpleCorsResourcePolicy
+        { Cors.corsRequestHeaders = ["Content-Type"]
+        , Cors.corsMethods = "POST" : Cors.simpleMethods }  
 
 
 servantApp :: Environment -> Application
