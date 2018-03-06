@@ -19,5 +19,10 @@ cabal.sandbox.config
 cabal.project.local
 .HTF/
 
-## purescript - generated js
+## generated js
 static/app.js
+
+## elm
+elm-stuff/
+
+## purescript
