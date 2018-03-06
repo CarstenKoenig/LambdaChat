@@ -18,8 +18,10 @@ dependencies:
   - mtl
   - servant
   - servant-server
+  - servant-swagger
   - servant-websockets
   - stm
+  - swagger2
   - text
   - uuid
   - wai

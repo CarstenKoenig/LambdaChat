@@ -8,18 +8,21 @@ module Main where
 import Control.Concurrent.STM (STM, atomically)
 import qualified Control.Concurrent.STM.TChan as SC
 import qualified Control.Concurrent.STM.TVar as SV
-import Control.Lens (view, set, at, makeLenses, (^.))
-import Data.Maybe (fromJust)
+import Control.Lens (view, set, at, makeLenses, mapped, (^.), (&), (.~), (?~))
 import Control.Monad (forever)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
-import Data.Aeson (ToJSON, FromJSON, encode)
+import Data.Aeson (ToJSON, FromJSON, encode, toJSON)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromJust)
 import Data.Proxy (Proxy(..))
+import Data.Swagger (Swagger)
+import qualified Data.Swagger as Sw
 import Data.Text (Text)
 import Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
 import qualified Network.Wai.Handler.Warp as Warp
@@ -28,6 +31,7 @@ import qualified Network.WebSockets.Connection as WS
 import Servant
 import Servant.API.WebSocket
 import Servant.Server (err401, err404)
+import Servant.Swagger
 
 ----------------------------------------------------------------------
 -- User Data
@@ -70,6 +74,7 @@ data Login = Login
 
 
 instance FromJSON Login
+instance ToJSON Login
 
 
 ----------------------------------------------------------------------
@@ -91,6 +96,7 @@ data SendMessage = SendMessage
   } deriving (Eq, Show, Generic)
 
 instance FromJSON SendMessage
+instance ToJSON SendMessage
 
 makeLenses ''SendMessage
 
@@ -102,6 +108,7 @@ data WhisperMessage = WhisperMessage
   } deriving (Eq, Show, Generic)
 
 instance FromJSON WhisperMessage
+instance ToJSON WhisperMessage
 
 makeLenses ''WhisperMessage
 
@@ -139,8 +146,10 @@ main = do
 
 
 servantApp :: Environment -> Application
-servantApp env =
-  serve (Proxy :: Proxy API) $ enter (chatMToHandler env) (userHandler :<|> messagesHandler)
+servantApp env = 
+  serve 
+    (Proxy :: Proxy (API :<|> SwaggerAPI)) $ 
+    enter (chatMToHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler
 
 ----------------------------------------------------------------------
 -- Servant-API
@@ -281,3 +290,44 @@ modifyRegisteredUsers modify =
 
 liftSTM :: STM a -> ChatM a
 liftSTM m = liftIO (atomically m)
+
+
+----------------------------------------------------------------------
+-- swagger
+
+type SwaggerAPI = "swagger.json" :> Get '[JSON] Swagger
+
+swaggerHandler :: Swagger
+swaggerHandler = toSwagger (Proxy :: Proxy API)
+  & Sw.info.Sw.title   .~ "LambdaChat API"
+  & Sw.info.Sw.version .~ "0.1"
+  & Sw.info.Sw.description ?~ "pure Chat"
+  & Sw.info.Sw.license ?~ ("MIT" & Sw.url ?~ Sw.URL "http://mit.com")
+
+
+instance Sw.ToSchema UserInfo where
+  declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
+    & mapped.Sw.schema.Sw.description ?~ "Userinfo example"
+    & mapped.Sw.schema.Sw.example ?~ toJSON (UserInfo "Max Mustermann")
+    
+
+instance Sw.ToSchema Login where
+  declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
+    & mapped.Sw.schema.Sw.description ?~ "A login for a user 'Max' with password '1234' should look like this"
+    & mapped.Sw.schema.Sw.example ?~ toJSON (Login "Max" "1234")
+
+
+instance Sw.ToSchema SendMessage where
+  declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
+    & mapped.Sw.schema.Sw.description ?~ "This is how you would share your wisdom"
+    & mapped.Sw.schema.Sw.example ?~ toJSON (SendMessage (fromJust $ UUID.fromText "a90d6e28-621d-4b23-b8d7-2fc045580846") "True == False")
+    
+
+instance Sw.ToSchema WhisperMessage where
+  declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
+    & mapped.Sw.schema.Sw.description ?~ "This is how your mother would send you advice"
+    & mapped.Sw.schema.Sw.example ?~ toJSON (WhisperMessage (fromJust $ UUID.fromText "a90d6e28-621d-4b23-b8d7-2fc045580846") "Son" "True == False")
+
+
+instance HasSwagger WebSocket where
+  toSwagger _ = mempty & Sw.paths . at "/" ?~ mempty        
