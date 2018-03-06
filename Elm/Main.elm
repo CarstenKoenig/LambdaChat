@@ -3,7 +3,7 @@ module Main exposing (..)
 import Html as H exposing (Html)
 import Html.Attributes as Attr
 import Html.Events as Ev
-import Api.Chat exposing (UserId, User)
+import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
 
 
@@ -12,13 +12,18 @@ baseUrl =
     "http://localhost:8081"
 
 
+wsUrl : String
+wsUrl =
+    "ws://localhost:8081"
+
+
 main : Program Never Model Msg
 main =
     H.program
         { init = init
         , update = update
         , view = view
-        , subscriptions = always Sub.none
+        , subscriptions = subscriptions
         }
 
 
@@ -41,8 +46,9 @@ type alias LoginModel =
 
 
 type alias ChatModel =
-    { input : String
-    , messages : List String
+    { userId : UserId
+    , input : String
+    , messages : List ReceivedMessage
     }
 
 
@@ -56,6 +62,7 @@ type Msg
     | InputMessage String
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
+    | MessageReceived (Result String Api.Chat.ReceivedMessage)
     | DismissError
 
 
@@ -73,9 +80,19 @@ initLogin =
     Login { name = "", password = "" }
 
 
-initChat : View
-initChat =
-    Chat { input = "", messages = [] }
+initChat : UserId -> View
+initChat userId =
+    Chat { userId = userId, input = "", messages = [] }
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    case model.view of
+        Chat chatModel ->
+            Api.Chat.webSocketSubscription MessageReceived wsUrl chatModel.userId
+
+        _ ->
+            Sub.none
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -94,7 +111,7 @@ update msg model =
         UserInfoResponse (Ok user) ->
             { model
                 | user = Just user
-                , view = initChat
+                , view = initChat user.id
             }
                 ! []
 
@@ -160,24 +177,38 @@ updateChat msg chatModel model =
                 |> setView Chat model
 
         SendMessage ->
-            case model.user of
-                Nothing ->
-                    model ! []
+            let
+                cmd =
+                    Http.send SendMessageResponse (Api.Chat.postMessage baseUrl chatModel.userId chatModel.input)
 
-                Just user ->
-                    let
-                        cmd =
-                            Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id chatModel.input)
-                    in
-                        { chatModel | input = "" }
-                            ! [ cmd ]
-                            |> setView Chat model
+                newMessages =
+                    chatModel.messages ++ [ ReceivedMessage "*me*" chatModel.input ]
+            in
+                { chatModel
+                    | input = ""
+                    , messages = newMessages
+                }
+                    ! [ cmd ]
+                    |> setView Chat model
 
         SendMessageResponse (Ok ()) ->
             model ! []
 
         SendMessageResponse (Err err) ->
             { model | error = Just (toString err) }
+                ! []
+
+        MessageReceived (Ok msg) ->
+            let
+                newMsgs =
+                    chatModel.messages ++ [ msg ]
+            in
+                { chatModel | messages = newMsgs }
+                    ! []
+                    |> setView Chat model
+
+        MessageReceived (Err err) ->
+            { model | error = Just err }
                 ! []
 
         _ ->
@@ -316,11 +347,22 @@ viewInput model =
         ]
 
 
-viewMessages : List String -> Html Msg
+viewMessages : List ReceivedMessage -> Html Msg
 viewMessages msgs =
-    H.ul
-        []
-        (List.map (H.text >> List.singleton >> H.li []) msgs)
+    let
+        showMessage msg =
+            H.li
+                []
+                [ H.span
+                    []
+                    [ H.text ("[" ++ msg.sender ++ "] ")
+                    , H.strong [] [ H.text msg.message ]
+                    ]
+                ]
+    in
+        H.ul
+            []
+            (List.map showMessage msgs)
 
 
 setView : (a -> View) -> Model -> ( a, cmd ) -> ( Model, cmd )

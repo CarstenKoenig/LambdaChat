@@ -1,8 +1,9 @@
-module Api.Chat exposing (Login, User, UserId, loginRequest, userInfoRequest, postMessage)
+module Api.Chat exposing (Login, User, UserId, ReceivedMessage, loginRequest, userInfoRequest, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
 import Json.Encode as Enc
+import WebSocket as Ws
 
 
 type alias Login r =
@@ -20,6 +21,12 @@ type alias User =
 
 type UserId
     = UserId String
+
+
+type alias ReceivedMessage =
+    { sender : String
+    , message : String
+    }
 
 
 userInfoRequest : String -> UserId -> Http.Request User
@@ -61,3 +68,15 @@ postMessage baseUrl (UserId id) message =
             , timeout = Nothing
             , withCredentials = False
             }
+
+
+webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> UserId -> Sub msg
+webSocketSubscription toMsg baseUrl (UserId id) =
+    let
+        decoder =
+            Json.map2 ReceivedMessage (Json.field "_msgSender" Json.string) (Json.field "_msgText" Json.string)
+
+        decode =
+            Json.decodeString decoder >> toMsg
+    in
+        Ws.listen (baseUrl ++ "/messages/" ++ id) decode
