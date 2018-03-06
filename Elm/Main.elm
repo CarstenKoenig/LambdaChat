@@ -48,8 +48,10 @@ type Msg
     = SubmitLogin
     | SubmitLoginResponse (Result Http.Error UserId)
     | UserInfoResponse (Result Http.Error User)
+    | Logout
     | InputLoginName String
     | InputLoginPassword String
+    | DismissError
 
 
 init : ( Model, Cmd Msg )
@@ -74,15 +76,14 @@ initChat =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SubmitLoginResponse (Ok userId) ->
-            let
-                cmd =
-                    Http.send UserInfoResponse (Api.Chat.userInfoRequest baseUrl userId)
-            in
-                model ! [ cmd ]
+        DismissError ->
+            { model | error = Nothing } ! []
 
-        SubmitLoginResponse (Err err) ->
-            { model | error = Just (toString err) }
+        Logout ->
+            { model
+                | user = Nothing
+                , view = initLogin
+            }
                 ! []
 
         UserInfoResponse (Ok user) ->
@@ -119,6 +120,18 @@ updateLogin msg loginModel model =
                 }
                     ! [ cmd ]
 
+        SubmitLoginResponse (Ok userId) ->
+            let
+                cmd =
+                    Http.send UserInfoResponse (Api.Chat.userInfoRequest baseUrl userId)
+            in
+                model ! [ cmd ]
+
+        SubmitLoginResponse (Err err) ->
+            { loginModel | password = "" }
+                ! []
+                |> setView Login { model | error = Just (toString err) }
+
         InputLoginName n ->
             { loginModel | name = n }
                 ! []
@@ -143,30 +156,31 @@ updateChat msg chatModel model =
 view : Model -> Html Msg
 view model =
     let
-        content =
+        navbarContent =
             case model.view of
                 Login loginModel ->
-                    viewLogin loginModel
+                    [ viewLogin loginModel ]
+
+                Chat _ ->
+                    viewUser model.user
+
+        content =
+            case model.view of
+                Login _ ->
+                    H.text ""
 
                 Chat chatModel ->
                     viewChat chatModel
     in
         H.div
             []
-            [ viewError model.error
-            , viewUser model.user
-            , content
+            [ viewNavbar navbarContent
+            , H.div
+                [ Attr.class "container" ]
+                [ viewError model.error
+                , content
+                ]
             ]
-
-
-viewUser : Maybe User -> Html Msg
-viewUser user =
-    case user of
-        Nothing ->
-            H.text ""
-
-        Just user ->
-            H.p [] [ H.text "hello, ", H.strong [] [ H.text user.name ] ]
 
 
 viewError : Maybe String -> Html Msg
@@ -176,30 +190,69 @@ viewError err =
             H.text ""
 
         Just text ->
-            H.p [] [ H.strong [] [ H.text "error: " ], H.text text ]
+            H.div
+                [ Attr.class "alert alert-danger", Attr.attribute "role" "alert", Ev.onClick DismissError ]
+                [ H.p [] [ H.strong [] [ H.text "error: " ], H.text text ] ]
+
+
+viewNavbar : List (Html Msg) -> Html Msg
+viewNavbar userContent =
+    H.nav
+        [ Attr.class "navbar navbar-expand-lg navbar-light bg-light justify-content-between" ]
+        ([ H.a
+            [ Attr.class "navbar-brand", Attr.href "#" ]
+            [ H.text "Lambda-Chat" ]
+         ]
+            ++ userContent
+        )
 
 
 viewLogin : LoginModel -> Html Msg
 viewLogin model =
-    H.div
-        []
-        [ H.form
-            [ Ev.onSubmit SubmitLogin ]
-            [ H.div
-                []
-                [ H.input
-                    [ Attr.type_ "text", Attr.placeholder "username", Attr.autocomplete False, Ev.onInput InputLoginName, Attr.value model.name ]
-                    []
-                ]
-            , H.div
-                []
-                [ H.input
-                    [ Attr.type_ "password", Attr.placeholder "password", Ev.onInput InputLoginPassword, Attr.value model.password ]
-                    []
-                ]
-            , H.button [ Attr.type_ "submit" ] [ H.text "login" ]
+    H.form
+        [ Attr.class "form-inline", Ev.onSubmit SubmitLogin ]
+        [ H.input
+            [ Attr.type_ "text"
+            , Attr.class "form-control mr-sm-2"
+            , Attr.placeholder "username"
+            , Attr.autocomplete False
+            , Ev.onInput InputLoginName
+            , Attr.value model.name
             ]
+            []
+        , H.input
+            [ Attr.type_ "password"
+            , Attr.class "form-control mr-sm-2"
+            , Attr.placeholder "password"
+            , Ev.onInput InputLoginPassword
+            , Attr.value model.password
+            ]
+            []
+        , H.button
+            [ Attr.type_ "submit"
+            , Attr.class "btn btn-outline-success my-2 my-sm-0"
+            ]
+            [ H.text "login" ]
         ]
+
+
+viewUser : Maybe User -> List (Html Msg)
+viewUser user =
+    case user of
+        Nothing ->
+            []
+
+        Just user ->
+            [ H.span [ Attr.class "navbar-text" ] [ H.text "hello, ", H.strong [] [ H.text user.name ] ]
+            , H.form
+                [ Attr.class "form-inline", Ev.onSubmit Logout ]
+                [ H.button
+                    [ Attr.type_ "submit"
+                    , Attr.class "btn btn-outline-success my-2 my-sm-0"
+                    ]
+                    [ H.text "logout" ]
+                ]
+            ]
 
 
 viewChat : ChatModel -> Html Msg
