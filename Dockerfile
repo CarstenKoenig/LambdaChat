@@ -3,8 +3,9 @@ EXPOSE 8081
 RUN apt-get update && \
     apt-get -y install make xz-utils
 RUN stack upgrade
-ADD . /app
-WORKDIR /app
+ADD ./Haskell /app/Haskell
+ADD ./Elm /app/Elm
+WORKDIR /app/Haskell
 RUN stack setup
 RUN apt-get -y install curl gnupg apt-transport-https ca-certificates netbase && \
     curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - && \
@@ -15,5 +16,5 @@ RUN apt-get -y install curl gnupg apt-transport-https ca-certificates netbase &&
     apt-get update && \
     apt-get install -y nodejs && \
     yarn global add elm
-RUN make dist
-ENTRYPOINT /app/dist/LambdaChat
+RUN cd /app/Haskell && make dist
+ENTRYPOINT /app/Haskell/dist/LambdaChat
