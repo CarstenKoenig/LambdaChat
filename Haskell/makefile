@@ -8,7 +8,7 @@ endif
 lambdaChat := $(outDir)/LambdaChat$(ext)
 
 $(lambdaChat): static/chat.js
-	stack setup && stack build
+	stack build
 
 dist: $(lambdaChat)
 	mkdir -p dist
