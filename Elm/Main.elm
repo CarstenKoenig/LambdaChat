@@ -9,12 +9,12 @@ import Http
 
 baseUrl : String
 baseUrl =
-    "http://localhost:80"
+    ""
 
 
 wsUrl : String
 wsUrl =
-    "ws://localhost:80"
+    "ws://localhost"
 
 
 main : Program Never Model Msg
