@@ -209,7 +209,7 @@ view model =
             []
             [ viewNavbar navbarContent
             , H.div
-                [ Attr.class "container-fluid scrollable"
+                [ Attr.class "container scrollable"
                 ]
                 [ viewError model.error
                 , viewChat model
@@ -235,7 +235,7 @@ viewNavbar userContent =
         [ Attr.class "navbar navbar-light bg-light sticky-top justify-content-between" ]
         ([ H.a
             [ Attr.class "navbar-brand", Attr.href "#" ]
-            [ H.text "Lambda-Chat" ]
+            [ H.text "λ Chat" ]
          ]
             ++ userContent
         )
