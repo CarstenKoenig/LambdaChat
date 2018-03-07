@@ -46,9 +46,15 @@ type alias LoginModel =
 
 
 type alias ChatModel =
-    { userId : UserId
-    , input : String
-    , messages : List ReceivedMessage
+    { input : String
+    , messages : List ChatMessage
+    }
+
+
+type alias ChatMessage =
+    { sender : String
+    , message : String
+    , ownMessage : Bool
     }
 
 
@@ -80,16 +86,23 @@ initLogin =
     Login { name = "", password = "" }
 
 
-initChat : UserId -> View
-initChat userId =
-    Chat { userId = userId, input = "", messages = [] }
+initChatModel : ChatModel
+initChatModel =
+    { input = "", messages = [] }
+
+
+initChat : View
+initChat =
+    Chat initChatModel
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     case model.view of
         Chat chatModel ->
-            Api.Chat.webSocketSubscription MessageReceived wsUrl chatModel.userId
+            model.user
+                |> Maybe.map (.id >> Api.Chat.webSocketSubscription MessageReceived wsUrl)
+                |> Maybe.withDefault Sub.none
 
         _ ->
             Sub.none
@@ -111,7 +124,7 @@ update msg model =
         UserInfoResponse (Ok user) ->
             { model
                 | user = Just user
-                , view = initChat user.id
+                , view = initChat
             }
                 ! []
 
@@ -179,10 +192,14 @@ updateChat msg chatModel model =
         SendMessage ->
             let
                 cmd =
-                    Http.send SendMessageResponse (Api.Chat.postMessage baseUrl chatModel.userId chatModel.input)
+                    model.user
+                        |> Maybe.map (\user -> Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id chatModel.input))
+                        |> Maybe.withDefault Cmd.none
 
                 newMessages =
-                    chatModel.messages ++ [ ReceivedMessage "*me*" chatModel.input ]
+                    model.user
+                        |> Maybe.map (\user -> ChatMessage user.name chatModel.input True :: chatModel.messages)
+                        |> Maybe.withDefault chatModel.messages
             in
                 { chatModel
                     | input = ""
@@ -201,7 +218,7 @@ updateChat msg chatModel model =
         MessageReceived (Ok msg) ->
             let
                 newMsgs =
-                    chatModel.messages ++ [ msg ]
+                    ChatMessage msg.sender msg.message False :: chatModel.messages
             in
                 { chatModel | messages = newMsgs }
                     ! []
@@ -229,16 +246,17 @@ view model =
         content =
             case model.view of
                 Login _ ->
-                    H.text ""
+                    viewChat model initChatModel
 
                 Chat chatModel ->
-                    viewChat chatModel
+                    viewChat model chatModel
     in
         H.div
             []
             [ viewNavbar navbarContent
             , H.div
-                [ Attr.class "container" ]
+                [ Attr.class "container-fluid scrollable"
+                ]
                 [ viewError model.error
                 , content
                 ]
@@ -260,7 +278,7 @@ viewError err =
 viewNavbar : List (Html Msg) -> Html Msg
 viewNavbar userContent =
     H.nav
-        [ Attr.class "navbar navbar-expand-lg navbar-light bg-light justify-content-between" ]
+        [ Attr.class "navbar navbar-light bg-light sticky-top justify-content-between" ]
         ([ H.a
             [ Attr.class "navbar-brand", Attr.href "#" ]
             [ H.text "Lambda-Chat" ]
@@ -272,29 +290,41 @@ viewNavbar userContent =
 viewLogin : LoginModel -> Html Msg
 viewLogin model =
     H.form
-        [ Attr.class "form-inline", Ev.onSubmit SubmitLogin ]
-        [ H.input
-            [ Attr.type_ "text"
-            , Attr.class "form-control mr-sm-2"
-            , Attr.placeholder "username"
-            , Attr.autocomplete False
-            , Ev.onInput InputLoginName
-            , Attr.value model.name
+        [ Ev.onSubmit SubmitLogin ]
+        [ H.div
+            [ Attr.class "form-row align-items-center" ]
+            [ H.div
+                [ Attr.class "col" ]
+                [ H.input
+                    [ Attr.type_ "text"
+                    , Attr.class "form-control mb-2"
+                    , Attr.placeholder "username"
+                    , Attr.autocomplete False
+                    , Ev.onInput InputLoginName
+                    , Attr.value model.name
+                    ]
+                    []
+                ]
+            , H.div
+                [ Attr.class "col" ]
+                [ H.input
+                    [ Attr.type_ "password"
+                    , Attr.class "form-control mb-2"
+                    , Attr.placeholder "password"
+                    , Ev.onInput InputLoginPassword
+                    , Attr.value model.password
+                    ]
+                    []
+                ]
+            , H.div
+                [ Attr.class "col-auto" ]
+                [ H.button
+                    [ Attr.type_ "submit"
+                    , Attr.class "btn btn-outline-success mb-2"
+                    ]
+                    [ H.text "login" ]
+                ]
             ]
-            []
-        , H.input
-            [ Attr.type_ "password"
-            , Attr.class "form-control mr-sm-2"
-            , Attr.placeholder "password"
-            , Ev.onInput InputLoginPassword
-            , Attr.value model.password
-            ]
-            []
-        , H.button
-            [ Attr.type_ "submit"
-            , Attr.class "btn btn-outline-success my-2 my-sm-0"
-            ]
-            [ H.text "login" ]
         ]
 
 
@@ -310,59 +340,89 @@ viewUser user =
                 [ Attr.class "form-inline", Ev.onSubmit Logout ]
                 [ H.button
                     [ Attr.type_ "submit"
-                    , Attr.class "btn btn-outline-success my-2 my-sm-0"
+                    , Attr.class "btn btn-outline-danger my-2 my-sm-0"
                     ]
                     [ H.text "logout" ]
                 ]
             ]
 
 
-viewChat : ChatModel -> Html Msg
-viewChat model =
+viewChat : Model -> ChatModel -> Html Msg
+viewChat model chatModel =
     H.div
         []
-        [ H.h1 [] [ H.text "CHAT" ]
-        , viewInput model
-        , viewMessages model.messages
-        ]
+        (viewInput model chatModel :: viewMessages chatModel.messages)
 
 
-viewInput : ChatModel -> Html Msg
-viewInput model =
-    H.form
-        [ Attr.class "form-inline", Ev.onSubmit SendMessage ]
-        [ H.input
-            [ Attr.type_ "text"
-            , Attr.class "form-control mr-sm-2"
-            , Attr.placeholder "message"
-            , Ev.onInput InputMessage
-            , Attr.value model.input
-            ]
-            []
-        , H.button
-            [ Attr.type_ "submit"
-            , Attr.class "btn btn-outline-success my-2 my-sm-0"
-            ]
-            [ H.text "send" ]
-        ]
-
-
-viewMessages : List ReceivedMessage -> Html Msg
-viewMessages msgs =
+viewInput : Model -> ChatModel -> Html Msg
+viewInput model chatModel =
     let
-        showMessage msg =
-            H.li
-                []
-                [ H.span
-                    []
-                    [ H.text ("[" ++ msg.sender ++ "] ")
-                    , H.strong [] [ H.text msg.message ]
+        isDisabled =
+            case model.user of
+                Just _ ->
+                    False
+
+                Nothing ->
+                    True
+    in
+        H.nav
+            [ Attr.class "navbar navbar-light bg-light fixed-bottom justify-content-between" ]
+            [ H.form
+                (if isDisabled then
+                    [ Attr.class "w-100" ]
+                 else
+                    [ Attr.class "w-100", Ev.onSubmit SendMessage ]
+                )
+                [ H.div
+                    [ Attr.class "form-row align-items-center" ]
+                    [ H.div
+                        [ Attr.class "col" ]
+                        [ H.input
+                            [ Attr.type_ "text"
+                            , Attr.class "form-control mb-2"
+                            , Attr.placeholder "message"
+                            , Ev.onInput InputMessage
+                            , Attr.value chatModel.input
+                            , Attr.disabled isDisabled
+                            ]
+                            []
+                        ]
+                    , H.div
+                        [ Attr.class "col-auto" ]
+                        [ H.button
+                            [ Attr.type_ "submit"
+                            , Attr.class "btn mb-2"
+                            , Attr.classList
+                                [ ( "btn-outline-success", not isDisabled )
+                                , ( "btn-outline-danger", isDisabled )
+                                ]
+                            , Attr.disabled isDisabled
+                            ]
+                            [ H.text "send" ]
+                        ]
                     ]
                 ]
-    in
-        H.ul
-            []
-            (List.map showMessage msgs)
+            ]
+
+
+viewMessages : List ChatMessage -> List (Html Msg)
+viewMessages =
+    List.map viewMessage
+
+
+viewMessage : ChatMessage -> Html Msg
+viewMessage msg =
+    H.div
+        [ Attr.class "card w-75 mb-2"
+        , Attr.classList
+            [ ( "float-right", not msg.ownMessage ) ]
+        ]
+        [ H.div
+            [ Attr.class "card-body" ]
+            [ H.h5 [ Attr.class "card-title" ] [ H.text msg.sender ]
+            , H.p [ Attr.class "card-text" ] [ H.text msg.message ]
+            ]
+        ]
 
 
 setView : (a -> View) -> Model -> ( a, cmd ) -> ( Model, cmd )
