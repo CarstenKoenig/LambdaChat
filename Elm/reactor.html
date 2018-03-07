@@ -16,18 +16,26 @@
 <body>
     <div id="main"></div>
 
-    <!-- Optional JavaScript -->
-    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
     <script src="content/jquery.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
     <script src="content/popper.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
     <script src="content/bootstrap.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
 
     <script src="_compile/Main.elm"></script>
     <script>
+        var loc = window.location, wsUri;
+        if (loc.protocol === "https:") {
+            wsUri = "wss:";
+        }
+        else {
+            wsUri = "ws:";
+        }
+        wsUri += "//" + loc.host;
+
         var node = document.getElementById('main');
-        var app = Elm.Main.embed(node);
-        // Note: if your Elm module is named "MyThing.Root" you
-        // would call "Elm.MyThing.Root.embed(node)" instead.
+        var app = Elm.Main.embed(node, {
+            "baseUri": loc.protocol + "//" + loc.host,
+            "wsUri": wsUri
+        });
     </script>
 </body>
 

@@ -22,8 +22,20 @@
 
     <script src="chat.js"></script>
     <script>
+        var loc = window.location, wsUri;
+        if (loc.protocol === "https:") {
+            wsUri = "wss:";
+        }
+        else {
+            wsUri = "ws:";
+        }
+        wsUri += "//" + loc.host;
+
         var node = document.getElementById('main');
-        var app = Elm.Main.embed(node);
+        var app = Elm.Main.embed(node, {
+            "baseUri": loc.protocol + "//" + loc.host,
+            "wsUri": wsUri
+        });
     </script>
 </body>
 
