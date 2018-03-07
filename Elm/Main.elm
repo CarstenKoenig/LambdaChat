@@ -7,19 +7,15 @@ import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
 
 
-baseUrl : String
-baseUrl =
-    ""
+type alias Flags =
+    { baseUri : String
+    , wsUri : String
+    }
 
 
-wsUrl : String
-wsUrl =
-    "ws://localhost"
-
-
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    H.program
+    H.programWithFlags
         { init = init
         , update = update
         , view = view
@@ -28,7 +24,8 @@ main =
 
 
 type alias Model =
-    { error : Maybe String
+    { flags : Flags
+    , error : Maybe String
     , login : LoginModel
     , messageInput : String
     , messages : List ChatMessage
@@ -64,9 +61,10 @@ type Msg
     | DismissError
 
 
-init : ( Model, Cmd Msg )
-init =
-    { error = Nothing
+init : Flags -> ( Model, Cmd Msg )
+init flags =
+    { flags = flags
+    , error = Nothing
     , login = Login { name = "", password = "" }
     , messageInput = ""
     , messages = []
@@ -79,7 +77,7 @@ subscriptions model =
     case model.login of
         LoggedIn user ->
             user.id
-                |> Api.Chat.webSocketSubscription MessageReceived wsUrl
+                |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
 
         _ ->
             Sub.none
@@ -116,7 +114,7 @@ update msg model =
                 cmd =
                     case model.login of
                         Login loginModel ->
-                            Http.send SubmitLoginResponse (Api.Chat.loginRequest baseUrl loginModel)
+                            Http.send SubmitLoginResponse (Api.Chat.loginRequest model.flags.baseUri loginModel)
 
                         LoggedIn _ ->
                             Cmd.none
@@ -126,7 +124,7 @@ update msg model =
         SubmitLoginResponse (Ok userId) ->
             let
                 cmd =
-                    Http.send UserInfoResponse (Api.Chat.userInfoRequest baseUrl userId)
+                    Http.send UserInfoResponse (Api.Chat.userInfoRequest model.flags.baseUri userId)
             in
                 model ! [ cmd ]
 
@@ -155,7 +153,7 @@ update msg model =
                 cmd =
                     case model.login of
                         LoggedIn user ->
-                            Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id model.messageInput)
+                            Http.send SendMessageResponse (Api.Chat.postMessage model.flags.baseUri user.id model.messageInput)
 
                         Login _ ->
                             Cmd.none

@@ -7,7 +7,7 @@ endif
 
 lambdaChat := $(outDir)/LambdaChat$(ext)
 
-$(lambdaChat): static/chat.js
+$(lambdaChat): staticFiles
 	stack build
 
 dist: $(lambdaChat)
@@ -17,13 +17,12 @@ dist: $(lambdaChat)
 	cp static/* dist/static/
 
 clean:
-	cd ../Elm && $(MAKE) clean
-	rm -rf .stack-work/
-	rm -rf static/
-	rm -rf dist/
+	-cd ../Elm && $(MAKE) clean
+	-rm -rf .stack-work/
+	-rm -rf static/
+	-rm -rf dist/
 
-
-static/chat.js:
+staticFiles:
 	mkdir -p static
 	cd ../Elm && $(MAKE) 
 	cp ../Elm/content/* static/
