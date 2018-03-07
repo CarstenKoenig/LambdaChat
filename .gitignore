@@ -19,6 +19,8 @@ cabal.sandbox.config
 cabal.project.local
 .HTF/
 
+static/
+
 ## elm
 elm-stuff/
 chat.js

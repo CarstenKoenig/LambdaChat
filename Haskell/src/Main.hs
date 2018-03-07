@@ -14,6 +14,7 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
 import Data.Aeson (ToJSON, FromJSON, encode, toJSON)
+import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
@@ -25,6 +26,8 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
+import Lucid (Html)
+import qualified Lucid
 import Network.HTTP.Types.Method (methodOptions)
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.Cors as Cors
@@ -32,6 +35,7 @@ import Network.WebSockets.Connection (Connection)
 import qualified Network.WebSockets.Connection as WS
 import Servant
 import Servant.API.WebSocket
+import Servant.HTML.Lucid (HTML)
 import Servant.Server (err401, err404)
 import Servant.Swagger
 ----------------------------------------------------------------------
@@ -153,8 +157,8 @@ main = do
 servantApp :: Environment -> Application
 servantApp env =
   serve
-    (Proxy :: Proxy (API :<|> SwaggerAPI)) $
-    enter (chatMToHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler
+    (Proxy :: Proxy (API :<|> SwaggerAPI :<|> HtmlAPI)) $
+    enter (chatMToHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler :<|> indexHandler :<|> serveStaticFiles
 
 ----------------------------------------------------------------------
 -- Servant-API
@@ -176,6 +180,8 @@ type MessageAPI =
    :<|> Capture "userid" UserId :> WebSocket
   )
 
+
+type HtmlAPI = Get '[HTML] (Html ()) :<|> Raw
 
 ----------------------------------------------------------------------
 -- Servant-Handler
@@ -239,6 +245,14 @@ messageWebsocketHandler uId connection = do
         | receiverId == uId && senderName /= uName ->
           WS.sendTextData connection (encode $ Message senderName text)
         | otherwise -> pure ()
+
+
+indexHandler :: Handler (Html ())
+indexHandler = liftIO $ do
+  index <- BS.readFile "static/index.html"
+  return $ Lucid.toHtmlRaw index
+
+serveStaticFiles = serveDirectoryWebApp "static"
 
 
 chatMToHandler :: Environment -> ChatM :~> Handler
