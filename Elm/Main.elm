@@ -29,26 +29,18 @@ main =
 
 type alias Model =
     { error : Maybe String
-    , user : Maybe User
-    , view : View
-    }
-
-
-type View
-    = Login LoginModel
-    | Chat ChatModel
-
-
-type alias LoginModel =
-    { name : String
-    , password : String
-    }
-
-
-type alias ChatModel =
-    { input : String
+    , login : LoginModel
+    , messageInput : String
     , messages : List ChatMessage
     }
+
+
+type LoginModel
+    = LoggedIn User
+    | Login
+        { name : String
+        , password : String
+        }
 
 
 type alias ChatMessage =
@@ -75,34 +67,19 @@ type Msg
 init : ( Model, Cmd Msg )
 init =
     { error = Nothing
-    , user = Nothing
-    , view = initLogin
+    , login = Login { name = "", password = "" }
+    , messageInput = ""
+    , messages = []
     }
         ! []
 
 
-initLogin : View
-initLogin =
-    Login { name = "", password = "" }
-
-
-initChatModel : ChatModel
-initChatModel =
-    { input = "", messages = [] }
-
-
-initChat : View
-initChat =
-    Chat initChatModel
-
-
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.view of
-        Chat chatModel ->
-            model.user
-                |> Maybe.map (.id >> Api.Chat.webSocketSubscription MessageReceived wsUrl)
-                |> Maybe.withDefault Sub.none
+    case model.login of
+        LoggedIn user ->
+            user.id
+                |> Api.Chat.webSocketSubscription MessageReceived wsUrl
 
         _ ->
             Sub.none
@@ -114,46 +91,37 @@ update msg model =
         DismissError ->
             { model | error = Nothing } ! []
 
-        Logout ->
-            { model
-                | user = Nothing
-                , view = initLogin
-            }
-                ! []
-
-        UserInfoResponse (Ok user) ->
-            { model
-                | user = Just user
-                , view = initChat
-            }
-                ! []
-
-        UserInfoResponse (Err err) ->
-            { model | error = Just (toString err) }
-                ! []
-
-        _ ->
-            case model.view of
+        --- login/logout
+        InputLoginName n ->
+            case model.login of
                 Login loginModel ->
-                    updateLogin msg loginModel model
+                    { model | login = Login { loginModel | name = n } } ! []
 
-                Chat chatModel ->
-                    updateChat msg chatModel model
+                LoggedIn _ ->
+                    model ! []
 
+        InputLoginPassword p ->
+            case model.login of
+                Login loginModel ->
+                    { model | login = Login { loginModel | password = p } } ! []
 
-updateLogin : Msg -> LoginModel -> Model -> ( Model, Cmd Msg )
-updateLogin msg loginModel model =
-    case msg of
+                LoggedIn _ ->
+                    model ! []
+
+        Logout ->
+            { model | login = Login { name = "", password = "" } } ! []
+
         SubmitLogin ->
             let
                 cmd =
-                    Http.send SubmitLoginResponse (Api.Chat.loginRequest baseUrl loginModel)
+                    case model.login of
+                        Login loginModel ->
+                            Http.send SubmitLoginResponse (Api.Chat.loginRequest baseUrl loginModel)
+
+                        LoggedIn _ ->
+                            Cmd.none
             in
-                { model
-                    | user = Nothing
-                    , error = Nothing
-                }
-                    ! [ cmd ]
+                { model | error = Nothing } ! [ cmd ]
 
         SubmitLoginResponse (Ok userId) ->
             let
@@ -163,50 +131,48 @@ updateLogin msg loginModel model =
                 model ! [ cmd ]
 
         SubmitLoginResponse (Err err) ->
-            { loginModel | password = "" }
+            case model.login of
+                Login loginModel ->
+                    { model | login = Login { loginModel | password = "" } } ! []
+
+                LoggedIn _ ->
+                    model ! []
+
+        UserInfoResponse (Ok user) ->
+            { model | login = LoggedIn user } ! []
+
+        UserInfoResponse (Err err) ->
+            { model | error = Just (toString err) }
                 ! []
-                |> setView Login { model | error = Just (toString err) }
 
-        InputLoginName n ->
-            { loginModel | name = n }
-                ! []
-                |> setView Login model
-
-        InputLoginPassword p ->
-            { loginModel | password = p }
-                ! []
-                |> setView Login model
-
-        _ ->
-            model ! []
-
-
-updateChat : Msg -> ChatModel -> Model -> ( Model, Cmd Msg )
-updateChat msg chatModel model =
-    case msg of
         InputMessage inp ->
-            { chatModel | input = inp }
+            { model | messageInput = inp }
                 ! []
-                |> setView Chat model
 
+        --- message sending/receiving
         SendMessage ->
             let
                 cmd =
-                    model.user
-                        |> Maybe.map (\user -> Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id chatModel.input))
-                        |> Maybe.withDefault Cmd.none
+                    case model.login of
+                        LoggedIn user ->
+                            Http.send SendMessageResponse (Api.Chat.postMessage baseUrl user.id model.messageInput)
+
+                        Login _ ->
+                            Cmd.none
 
                 newMessages =
-                    model.user
-                        |> Maybe.map (\user -> ChatMessage user.name chatModel.input True :: chatModel.messages)
-                        |> Maybe.withDefault chatModel.messages
+                    case model.login of
+                        LoggedIn user ->
+                            ChatMessage user.name model.messageInput True :: model.messages
+
+                        Login _ ->
+                            model.messages
             in
-                { chatModel
-                    | input = ""
+                { model
+                    | messageInput = ""
                     , messages = newMessages
                 }
                     ! [ cmd ]
-                    |> setView Chat model
 
         SendMessageResponse (Ok ()) ->
             model ! []
@@ -218,38 +184,26 @@ updateChat msg chatModel model =
         MessageReceived (Ok msg) ->
             let
                 newMsgs =
-                    ChatMessage msg.sender msg.message False :: chatModel.messages
+                    ChatMessage msg.sender msg.message False :: model.messages
             in
-                { chatModel | messages = newMsgs }
+                { model | messages = newMsgs }
                     ! []
-                    |> setView Chat model
 
         MessageReceived (Err err) ->
             { model | error = Just err }
                 ! []
-
-        _ ->
-            model ! []
 
 
 view : Model -> Html Msg
 view model =
     let
         navbarContent =
-            case model.view of
+            case model.login of
                 Login loginModel ->
                     [ viewLogin loginModel ]
 
-                Chat _ ->
-                    viewUser model.user
-
-        content =
-            case model.view of
-                Login _ ->
-                    viewChat model initChatModel
-
-                Chat chatModel ->
-                    viewChat model chatModel
+                LoggedIn user ->
+                    viewUser user
     in
         H.div
             []
@@ -258,7 +212,7 @@ view model =
                 [ Attr.class "container-fluid scrollable"
                 ]
                 [ viewError model.error
-                , content
+                , viewChat model
                 ]
             ]
 
@@ -287,7 +241,7 @@ viewNavbar userContent =
         )
 
 
-viewLogin : LoginModel -> Html Msg
+viewLogin : { name : String, password : String } -> Html Msg
 viewLogin model =
     H.form
         [ Ev.onSubmit SubmitLogin ]
@@ -328,41 +282,36 @@ viewLogin model =
         ]
 
 
-viewUser : Maybe User -> List (Html Msg)
+viewUser : User -> List (Html Msg)
 viewUser user =
-    case user of
-        Nothing ->
-            []
-
-        Just user ->
-            [ H.span [ Attr.class "navbar-text" ] [ H.text "hello, ", H.strong [] [ H.text user.name ] ]
-            , H.form
-                [ Attr.class "form-inline", Ev.onSubmit Logout ]
-                [ H.button
-                    [ Attr.type_ "submit"
-                    , Attr.class "btn btn-outline-danger my-2 my-sm-0"
-                    ]
-                    [ H.text "logout" ]
-                ]
+    [ H.span [ Attr.class "navbar-text" ] [ H.text "hello, ", H.strong [] [ H.text user.name ] ]
+    , H.form
+        [ Attr.class "form-inline", Ev.onSubmit Logout ]
+        [ H.button
+            [ Attr.type_ "submit"
+            , Attr.class "btn btn-outline-danger my-2 my-sm-0"
             ]
+            [ H.text "logout" ]
+        ]
+    ]
 
 
-viewChat : Model -> ChatModel -> Html Msg
-viewChat model chatModel =
+viewChat : Model -> Html Msg
+viewChat model =
     H.div
         []
-        (viewInput model chatModel :: viewMessages chatModel.messages)
+        (viewInput model :: viewMessages model.messages)
 
 
-viewInput : Model -> ChatModel -> Html Msg
-viewInput model chatModel =
+viewInput : Model -> Html Msg
+viewInput model =
     let
         isDisabled =
-            case model.user of
-                Just _ ->
+            case model.login of
+                LoggedIn _ ->
                     False
 
-                Nothing ->
+                Login _ ->
                     True
     in
         H.nav
@@ -382,7 +331,7 @@ viewInput model chatModel =
                             , Attr.class "form-control mb-2"
                             , Attr.placeholder "message"
                             , Ev.onInput InputMessage
-                            , Attr.value chatModel.input
+                            , Attr.value model.messageInput
                             , Attr.disabled isDisabled
                             ]
                             []
@@ -423,8 +372,3 @@ viewMessage msg =
             , H.p [ Attr.class "card-text" ] [ H.text msg.message ]
             ]
         ]
-
-
-setView : (a -> View) -> Model -> ( a, cmd ) -> ( Model, cmd )
-setView wrap model ( viewModel, cmd ) =
-    ( { model | view = wrap viewModel }, cmd )
