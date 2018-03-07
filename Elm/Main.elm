@@ -5,6 +5,7 @@ import Html.Attributes as Attr
 import Html.Events as Ev
 import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
+import Markdown as MD
 
 
 type alias Flags =
@@ -324,9 +325,9 @@ viewInput model =
                     [ Attr.class "form-row align-items-center" ]
                     [ H.div
                         [ Attr.class "col" ]
-                        [ H.input
-                            [ Attr.type_ "text"
-                            , Attr.class "form-control mb-2"
+                        [ H.textarea
+                            [ Attr.class "form-control mb-2"
+                            , Attr.rows 3
                             , Attr.placeholder "message"
                             , Ev.onInput InputMessage
                             , Attr.value model.messageInput
@@ -367,6 +368,12 @@ viewMessage msg =
         [ H.div
             [ Attr.class "card-body" ]
             [ H.h5 [ Attr.class "card-title" ] [ H.text msg.sender ]
-            , H.p [ Attr.class "card-text" ] [ H.text msg.message ]
+            , toMarkdown msg.message
             ]
         ]
+
+toMarkdown : String -> Html msg
+toMarkdown =
+    let def = MD.defaultOptions 
+        options = { def | sanitize = True }
+    in MD.toHtmlWith options [ ]
