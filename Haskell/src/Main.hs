@@ -146,8 +146,8 @@ main :: IO ()
 main = do
   env <- newEnv
 
-  putStrLn "serving app on http://localhost:8081"
-  Warp.run 8081 $ Cors.cors (const $ Just policy) $ servantApp env
+  putStrLn "serving app on http://localhost:80"
+  Warp.run 80 $ Cors.cors (const $ Just policy) $ servantApp env
   where
     policy = Cors.simpleCorsResourcePolicy
         { Cors.corsRequestHeaders = ["Content-Type"]

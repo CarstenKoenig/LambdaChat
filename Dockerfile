@@ -1,5 +1,5 @@
 FROM haskell
-EXPOSE 8081
+EXPOSE 80
 RUN apt-get update && \
     apt-get -y install make xz-utils
 RUN stack upgrade

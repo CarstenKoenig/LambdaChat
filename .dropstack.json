@@ -1,0 +1,9 @@
+{
+  "variables": "",
+  "instances": 1,
+  "type": "docker",
+  "excludes": [],
+  "stateful": false,
+  "name": "yiherfva",
+  "serviceUrl": "yiherfva.cloud.dropstack.run"
+}
