@@ -43,6 +43,7 @@ import Servant.Server (err401, err404)
 import Servant.Swagger
 import Skylighting ( TokenizerConfig(..), SourceLine)
 import qualified Skylighting as Sky       
+import System.Environment (lookupEnv)
 import qualified Text.Blaze.Html as TBH
 import Text.Blaze.Html.Renderer.Text (renderHtml)
 import Text.Markdown (MarkdownSettings(..), markdown)
@@ -158,8 +159,10 @@ main :: IO ()
 main = do
   env <- newEnv
 
-  putStrLn "serving app on http://localhost:8081"
-  Warp.run 8081 $ Cors.cors (const $ Just policy) $ servantApp env
+  port <- maybe 8081 read <$> lookupEnv "PORT"
+
+  putStrLn $ "serving app on http://localhost:" ++ show port
+  Warp.run port $ Cors.cors (const $ Just policy) $ servantApp env
   where
     policy = Cors.simpleCorsResourcePolicy
         { Cors.corsRequestHeaders = ["Content-Type"]
