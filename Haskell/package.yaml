@@ -27,6 +27,7 @@ dependencies:
   - stm
   - swagger2
   - text
+  - time
   - uuid
   - wai
   - wai-cors

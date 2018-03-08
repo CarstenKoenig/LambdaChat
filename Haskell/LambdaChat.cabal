@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 62d210f68d731c7ded72bd8777aecfc7f0234af550d7614b196f9db06a21c90f
+-- hash: 5e428a1382bbbc59560c75bc73a43486529f9c92853f305c6a2d4b42ba72783a
 
 name:           LambdaChat
 version:        0.1.0.0
@@ -41,6 +41,7 @@ executable LambdaChat
     , stm
     , swagger2
     , text
+    , time
     , uuid
     , wai
     , wai-cors

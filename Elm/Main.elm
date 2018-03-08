@@ -7,6 +7,9 @@ import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
 import Markdown as MD
 import Keyboard as Kbd
+import Date exposing (Date)
+import Time exposing (Time)
+import Task
 
 
 ctrlKeyCode : Kbd.KeyCode
@@ -44,6 +47,7 @@ type alias Model =
     , messageInput : String
     , messages : List ChatMessage
     , ctrlKeyPressed : Bool
+    , currentTime : Time
     }
 
 
@@ -58,7 +62,9 @@ type LoginModel
 type alias ChatMessage =
     { sender : String
     , message : String
+    , time : Date
     , ownMessage : Bool
+    , isPrivate : Bool
     }
 
 
@@ -73,11 +79,13 @@ type Msg
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
     | MessageReceived (Result String Api.Chat.ReceivedMessage)
+    | InsertMessage ChatMessage
     | DismissError
     | KeyDown Kbd.KeyCode
     | KeyUp Kbd.KeyCode
     | MessageInputFocus Bool
     | MessageInputMouseOver Bool
+    | UpdateTime Time
 
 
 init : Flags -> ( Model, Cmd Msg )
@@ -90,6 +98,7 @@ init flags =
     , messageInput = ""
     , messages = []
     , ctrlKeyPressed = False
+    , currentTime = 0
     }
         ! []
 
@@ -99,6 +108,9 @@ subscriptions model =
     let
         kbdSub =
             Sub.batch [ Kbd.downs KeyDown, Kbd.ups KeyUp ]
+
+        clockSub =
+            Time.every Time.second UpdateTime
     in
         case model.login of
             LoggedIn user ->
@@ -107,10 +119,10 @@ subscriptions model =
                         user.id
                             |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
                 in
-                    Sub.batch [ wsSub, kbdSub ]
+                    Sub.batch [ wsSub, kbdSub, clockSub ]
 
             _ ->
-                kbdSub
+                Sub.batch [ kbdSub, clockSub ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -188,10 +200,13 @@ update msg model =
             { model | error = Just (toString err) }
                 ! []
 
+        InsertMessage msg ->
+            { model | messages = msg :: model.messages } ! []
+
         MessageReceived (Ok msg) ->
             let
                 newMsgs =
-                    ChatMessage msg.sender msg.message False :: model.messages
+                    ChatMessage msg.sender msg.message msg.time False msg.isPrivate :: model.messages
             in
                 { model | messages = newMsgs }
                     ! []
@@ -220,6 +235,9 @@ update msg model =
             else
                 model ! []
 
+        UpdateTime time ->
+            { model | currentTime = time } ! []
+
 
 sendMessage : Model -> ( Model, Cmd Msg )
 sendMessage model =
@@ -235,19 +253,17 @@ sendMessage model =
                     Login _ ->
                         Cmd.none
 
-            newMessages =
+            insertMessageCommand =
                 case model.login of
                     LoggedIn user ->
-                        ChatMessage user.name model.messageInput True :: model.messages
+                        Date.now
+                            |> Task.map (\time -> ChatMessage user.name model.messageInput time True False)
+                            |> Task.perform InsertMessage
 
                     Login _ ->
-                        model.messages
+                        Cmd.none
         in
-            { model
-                | messageInput = ""
-                , messages = newMessages
-            }
-                ! [ cmd ]
+            { model | messageInput = "" } ! [ cmd, insertMessageCommand ]
 
 
 view : Model -> Html Msg
@@ -362,7 +378,7 @@ viewChat model =
     in
         H.div
             []
-            (viewInput model :: viewMessages model.messages ++ [ bottomSpace ])
+            (viewInput model :: viewMessages model.currentTime model.messages ++ [ bottomSpace ])
 
 
 viewInput : Model -> Html Msg
@@ -426,24 +442,76 @@ viewInput model =
             ]
 
 
-viewMessages : List ChatMessage -> List (Html Msg)
-viewMessages =
-    List.map viewMessage
+viewMessages : Time -> List ChatMessage -> List (Html Msg)
+viewMessages now =
+    List.map (viewMessage now)
 
 
-viewMessage : ChatMessage -> Html Msg
-viewMessage msg =
+viewMessage : Time -> ChatMessage -> Html Msg
+viewMessage now msg =
     H.div
         [ Attr.class "card w-75 mb-2"
         , Attr.classList
-            [ ( "float-right", not msg.ownMessage ) ]
-        ]
-        [ H.div
-            [ Attr.class "card-body" ]
-            [ H.h5 [ Attr.class "card-title" ] [ H.text msg.sender ]
-            , toMarkdown msg.message
+            [ ( "float-right", not msg.ownMessage )
+            , ( "text-white", msg.isPrivate || msg.ownMessage )
+            , ( "bg-info", msg.ownMessage )
+            , ( "bg-warning", msg.isPrivate )
             ]
         ]
+        [ H.div
+            [ Attr.class "card-header" ]
+            [ H.div
+                [ Attr.class "row" ]
+                [ H.div
+                    [ Attr.class "col-md-8" ]
+                    [ H.h5
+                        [ Attr.class "card-title" ]
+                        [ H.text msg.sender ]
+                    ]
+                , H.div
+                    [ Attr.class "col" ]
+                    [ H.div
+                        [ Attr.class "float-right" ]
+                        [ H.h6
+                            []
+                            [ H.text (formatEllapsedTime now msg.time)
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        , H.div
+            [ Attr.class "card-body" ]
+            [ toMarkdown msg.message
+            ]
+        ]
+
+
+formatEllapsedTime : Time -> Date -> String
+formatEllapsedTime currentTime displayDate =
+    let
+        timeDiff =
+            currentTime - Date.toTime displayDate
+
+        ellapsedHours =
+            Time.inHours timeDiff
+
+        ellapsedMinutes =
+            Time.inMinutes timeDiff
+
+        ellapsedSeconds =
+            Time.inSeconds timeDiff
+    in
+        if round ellapsedHours >= 2 then
+            toString (round ellapsedHours) ++ " hours ago"
+        else if ellapsedHours >= 1 then
+            "one hour ago"
+        else if round ellapsedMinutes >= 2 then
+            toString (round ellapsedMinutes) ++ " minutes ago"
+        else if ellapsedMinutes >= 1 then
+            "one minute ago"
+        else
+            "just now"
 
 
 toMarkdown : String -> Html msg

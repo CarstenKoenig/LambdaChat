@@ -22,13 +22,13 @@ import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
 import Data.Text (Text)
+import Data.Time (UTCTime, getCurrentTime)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as URnd
 import GHC.Generics (Generic)
-import Lucid (Html)
 import qualified Lucid
-import Network.HTTP.Types.Method (methodOptions)
+import Lucid (Html)
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.Cors as Cors
 import Network.WebSockets.Connection (Connection)
@@ -86,8 +86,10 @@ instance ToJSON Login
 -- Messages
 
 data Message = Message
-  { _msgSender :: UserName
-  , _msgText   :: Text
+  { _msgSender   :: UserName
+  , _msgText     :: Text
+  , _msgTime     :: UTCTime
+  , _msgPrivate  :: Bool
   } deriving (Eq, Show, Generic)
 
 instance ToJSON Message
@@ -236,14 +238,15 @@ messageWebsocketHandler uId connection = do
   chan <- liftSTM $ SC.dupTChan broadcastChan
   liftIO $ forever $ do
     msg <- atomically $ SC.readTChan chan
+    time <- liftIO getCurrentTime
     case msg of
       Broadcast senderName text
         | senderName /= uName ->
-          WS.sendTextData connection (encode $ Message senderName text)
+          WS.sendTextData connection (encode $ Message senderName text time False)
         | otherwise -> pure ()
       Whisper receiverId senderName text
         | receiverId == uId && senderName /= uName ->
-          WS.sendTextData connection (encode $ Message senderName text)
+          WS.sendTextData connection (encode $ Message senderName text time True)
         | otherwise -> pure ()
 
 
@@ -252,6 +255,7 @@ indexHandler = liftIO $ do
   index <- BS.readFile "static/index.html"
   return $ Lucid.toHtmlRaw index
 
+serveStaticFiles :: Tagged Handler Application
 serveStaticFiles = serveDirectoryWebApp "static"
 
 

@@ -4,6 +4,7 @@ import Http
 import Json.Decode as Json
 import Json.Encode as Enc
 import WebSocket as Ws
+import Date exposing (Date)
 
 
 type alias Login r =
@@ -26,6 +27,8 @@ type UserId
 type alias ReceivedMessage =
     { sender : String
     , message : String
+    , time : Date
+    , isPrivate : Bool
     }
 
 
@@ -73,8 +76,24 @@ postMessage baseUrl (UserId id) message =
 webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> UserId -> Sub msg
 webSocketSubscription toMsg baseUrl (UserId id) =
     let
+        decodeDate =
+            Json.string
+                |> Json.andThen
+                    (\dateStr ->
+                        case Date.fromString dateStr of
+                            Ok date ->
+                                Json.succeed date
+
+                            Err err ->
+                                Json.fail err
+                    )
+
         decoder =
-            Json.map2 ReceivedMessage (Json.field "_msgSender" Json.string) (Json.field "_msgText" Json.string)
+            Json.map4 ReceivedMessage
+                (Json.field "_msgSender" Json.string)
+                (Json.field "_msgText" Json.string)
+                (Json.field "_msgTime" decodeDate)
+                (Json.field "_msgPrivate" Json.bool)
 
         decode =
             Json.decodeString decoder >> toMsg
