@@ -6,6 +6,17 @@ import Html.Events as Ev
 import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
 import Markdown as MD
+import Keyboard as Kbd
+
+
+ctrlKeyCode : Kbd.KeyCode
+ctrlKeyCode =
+    17
+
+
+enterKeyCode : Kbd.KeyCode
+enterKeyCode =
+    13
 
 
 type alias Flags =
@@ -28,8 +39,11 @@ type alias Model =
     { flags : Flags
     , error : Maybe String
     , login : LoginModel
+    , messageInputFocused : Bool
+    , messageInputMouseOver : Bool
     , messageInput : String
     , messages : List ChatMessage
+    , ctrlKeyPressed : Bool
     }
 
 
@@ -60,6 +74,10 @@ type Msg
     | SendMessageResponse (Result Http.Error ())
     | MessageReceived (Result String Api.Chat.ReceivedMessage)
     | DismissError
+    | KeyDown Kbd.KeyCode
+    | KeyUp Kbd.KeyCode
+    | MessageInputFocus Bool
+    | MessageInputMouseOver Bool
 
 
 init : Flags -> ( Model, Cmd Msg )
@@ -67,21 +85,32 @@ init flags =
     { flags = flags
     , error = Nothing
     , login = Login { name = "", password = "" }
+    , messageInputFocused = False
+    , messageInputMouseOver = False
     , messageInput = ""
     , messages = []
+    , ctrlKeyPressed = False
     }
         ! []
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.login of
-        LoggedIn user ->
-            user.id
-                |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
+    let
+        kbdSub =
+            Sub.batch [ Kbd.downs KeyDown, Kbd.ups KeyUp ]
+    in
+        case model.login of
+            LoggedIn user ->
+                let
+                    wsSub =
+                        user.id
+                            |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
+                in
+                    Sub.batch [ wsSub, kbdSub ]
 
-        _ ->
-            Sub.none
+            _ ->
+                kbdSub
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -150,28 +179,7 @@ update msg model =
 
         --- message sending/receiving
         SendMessage ->
-            let
-                cmd =
-                    case model.login of
-                        LoggedIn user ->
-                            Http.send SendMessageResponse (Api.Chat.postMessage model.flags.baseUri user.id model.messageInput)
-
-                        Login _ ->
-                            Cmd.none
-
-                newMessages =
-                    case model.login of
-                        LoggedIn user ->
-                            ChatMessage user.name model.messageInput True :: model.messages
-
-                        Login _ ->
-                            model.messages
-            in
-                { model
-                    | messageInput = ""
-                    , messages = newMessages
-                }
-                    ! [ cmd ]
+            sendMessage model
 
         SendMessageResponse (Ok ()) ->
             model ! []
@@ -191,6 +199,55 @@ update msg model =
         MessageReceived (Err err) ->
             { model | error = Just err }
                 ! []
+
+        MessageInputFocus focused ->
+            { model | messageInputFocused = focused } ! []
+
+        MessageInputMouseOver over ->
+            { model | messageInputMouseOver = over } ! []
+
+        KeyDown keyCode ->
+            if keyCode == ctrlKeyCode then
+                { model | ctrlKeyPressed = True } ! []
+            else if keyCode == enterKeyCode && model.ctrlKeyPressed && model.messageInputFocused then
+                sendMessage model
+            else
+                model ! []
+
+        KeyUp keyCode ->
+            if keyCode == ctrlKeyCode then
+                { model | ctrlKeyPressed = False } ! []
+            else
+                model ! []
+
+
+sendMessage : Model -> ( Model, Cmd Msg )
+sendMessage model =
+    if model.messageInput == "" then
+        model ! []
+    else
+        let
+            cmd =
+                case model.login of
+                    LoggedIn user ->
+                        Http.send SendMessageResponse (Api.Chat.postMessage model.flags.baseUri user.id model.messageInput)
+
+                    Login _ ->
+                        Cmd.none
+
+            newMessages =
+                case model.login of
+                    LoggedIn user ->
+                        ChatMessage user.name model.messageInput True :: model.messages
+
+                    Login _ ->
+                        model.messages
+        in
+            { model
+                | messageInput = ""
+                , messages = newMessages
+            }
+                ! [ cmd ]
 
 
 view : Model -> Html Msg
@@ -297,9 +354,15 @@ viewUser user =
 
 viewChat : Model -> Html Msg
 viewChat model =
-    H.div
-        []
-        (viewInput model :: viewMessages model.messages)
+    let
+        -- used to make space for the fixed-bottom navbar (all elements should be seen when scrollable)
+        -- ignores expanded input though
+        bottomSpace =
+            H.div [ Attr.style [ ( "height", "75px" ) ] ] []
+    in
+        H.div
+            []
+            (viewInput model :: viewMessages model.messages ++ [ bottomSpace ])
 
 
 viewInput : Model -> Html Msg
@@ -327,11 +390,20 @@ viewInput model =
                         [ Attr.class "col" ]
                         [ H.textarea
                             [ Attr.class "form-control mb-2"
-                            , Attr.rows 3
+                            , Attr.rows
+                                (if model.messageInputFocused || model.messageInputMouseOver then
+                                    5
+                                 else
+                                    1
+                                )
                             , Attr.placeholder "message"
-                            , Ev.onInput InputMessage
                             , Attr.value model.messageInput
                             , Attr.disabled isDisabled
+                            , Ev.onInput InputMessage
+                            , Ev.onMouseOver (MessageInputMouseOver True)
+                            , Ev.onMouseOut (MessageInputMouseOver False)
+                            , Ev.onFocus (MessageInputFocus True)
+                            , Ev.onBlur (MessageInputFocus False)
                             ]
                             []
                         ]
@@ -372,8 +444,14 @@ viewMessage msg =
             ]
         ]
 
+
 toMarkdown : String -> Html msg
 toMarkdown =
-    let def = MD.defaultOptions 
-        options = { def | sanitize = True }
-    in MD.toHtmlWith options [ ]
+    let
+        def =
+            MD.defaultOptions
+
+        options =
+            { def | sanitize = True }
+    in
+        MD.toHtmlWith options []
