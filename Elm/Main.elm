@@ -414,9 +414,10 @@ viewInput model =
                             , Attr.class "btn mb-2"
                             , Attr.classList
                                 [ ( "btn-outline-success", not isDisabled )
+                                , ( "btn-outline-warning", not isDisabled && model.messageInput == "" )
                                 , ( "btn-outline-danger", isDisabled )
                                 ]
-                            , Attr.disabled isDisabled
+                            , Attr.disabled (isDisabled || model.messageInput == "")
                             ]
                             [ H.text "send" ]
                         ]
