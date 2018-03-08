@@ -1,15 +1,14 @@
 module Main exposing (..)
 
+import Api.Chat exposing (UserId, User, ReceivedMessage)
+import Date exposing (Date)
 import Html as H exposing (Html)
 import Html.Attributes as Attr
 import Html.Events as Ev
-import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
-import Markdown as MD
 import Keyboard as Kbd
-import Date exposing (Date)
+import Markdown as MD
 import Time exposing (Time)
-import Task
 
 
 ctrlKeyCode : Kbd.KeyCode
@@ -51,6 +50,16 @@ type alias Model =
     }
 
 
+currentUserName : Model -> Maybe String
+currentUserName model =
+    case model.login of
+        LoggedIn user ->
+            Just user.name
+
+        Login _ ->
+            Nothing
+
+
 type LoginModel
     = LoggedIn User
     | Login
@@ -61,7 +70,7 @@ type LoginModel
 
 type alias ChatMessage =
     { sender : String
-    , message : String
+    , htmlBody : String
     , time : Date
     , ownMessage : Bool
     , isPrivate : Bool
@@ -79,7 +88,6 @@ type Msg
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
     | MessageReceived (Result String Api.Chat.ReceivedMessage)
-    | InsertMessage ChatMessage
     | DismissError
     | KeyDown Kbd.KeyCode
     | KeyUp Kbd.KeyCode
@@ -200,13 +208,10 @@ update msg model =
             { model | error = Just (toString err) }
                 ! []
 
-        InsertMessage msg ->
-            { model | messages = msg :: model.messages } ! []
-
         MessageReceived (Ok msg) ->
             let
                 newMsgs =
-                    ChatMessage msg.sender msg.message msg.time False msg.isPrivate :: model.messages
+                    ChatMessage msg.sender msg.htmlBody msg.time (Just msg.sender == currentUserName model) msg.isPrivate :: model.messages
             in
                 { model | messages = newMsgs }
                     ! []
@@ -252,18 +257,8 @@ sendMessage model =
 
                     Login _ ->
                         Cmd.none
-
-            insertMessageCommand =
-                case model.login of
-                    LoggedIn user ->
-                        Date.now
-                            |> Task.map (\time -> ChatMessage user.name model.messageInput time True False)
-                            |> Task.perform InsertMessage
-
-                    Login _ ->
-                        Cmd.none
         in
-            { model | messageInput = "" } ! [ cmd, insertMessageCommand ]
+            { model | messageInput = "" } ! [ cmd ]
 
 
 view : Model -> Html Msg
@@ -482,7 +477,7 @@ viewMessage now msg =
             ]
         , H.div
             [ Attr.class "card-body" ]
-            [ toMarkdown msg.message
+            [ rawHtml msg.htmlBody
             ]
         ]
 
@@ -514,13 +509,15 @@ formatEllapsedTime currentTime displayDate =
             "just now"
 
 
-toMarkdown : String -> Html msg
-toMarkdown =
+rawHtml : String -> Html msg
+rawHtml =
     let
         def =
             MD.defaultOptions
 
         options =
-            { def | sanitize = True }
+            { def
+                | sanitize = False
+            }
     in
         MD.toHtmlWith options []

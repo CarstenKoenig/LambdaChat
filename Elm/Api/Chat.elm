@@ -26,9 +26,9 @@ type UserId
 
 type alias ReceivedMessage =
     { sender : String
-    , message : String
     , time : Date
     , isPrivate : Bool
+    , htmlBody : String
     }
 
 
@@ -91,9 +91,9 @@ webSocketSubscription toMsg baseUrl (UserId id) =
         decoder =
             Json.map4 ReceivedMessage
                 (Json.field "_msgSender" Json.string)
-                (Json.field "_msgText" Json.string)
                 (Json.field "_msgTime" decodeDate)
                 (Json.field "_msgPrivate" Json.bool)
+                (Json.field "_msgHtmlBody" Json.string)
 
         decode =
             Json.decodeString decoder >> toMsg

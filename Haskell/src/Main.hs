@@ -15,13 +15,16 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
 import Data.Aeson (ToJSON, FromJSON, encode, toJSON)
 import qualified Data.ByteString as BS
+import Data.Default (def)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Time (UTCTime, getCurrentTime)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
@@ -38,6 +41,12 @@ import Servant.API.WebSocket
 import Servant.HTML.Lucid (HTML)
 import Servant.Server (err401, err404)
 import Servant.Swagger
+import Skylighting ( TokenizerConfig(..), SourceLine)
+import qualified Skylighting as Sky       
+import qualified Text.Blaze.Html as TBH
+import Text.Blaze.Html.Renderer.Text (renderHtml)
+import Text.Markdown (MarkdownSettings(..), markdown)
+
 ----------------------------------------------------------------------
 -- User Data
 
@@ -90,6 +99,7 @@ data Message = Message
   , _msgText     :: Text
   , _msgTime     :: UTCTime
   , _msgPrivate  :: Bool
+  , _msgHtmlBody :: Text
   } deriving (Eq, Show, Generic)
 
 instance ToJSON Message
@@ -240,13 +250,11 @@ messageWebsocketHandler uId connection = do
     msg <- atomically $ SC.readTChan chan
     time <- liftIO getCurrentTime
     case msg of
-      Broadcast senderName text
-        | senderName /= uName ->
-          WS.sendTextData connection (encode $ Message senderName text time False)
-        | otherwise -> pure ()
+      Broadcast senderName text ->
+        WS.sendTextData connection (encode $ Message senderName text time False $ renderMarkdown text)
       Whisper receiverId senderName text
         | receiverId == uId && senderName /= uName ->
-          WS.sendTextData connection (encode $ Message senderName text time True)
+          WS.sendTextData connection (encode $ Message senderName text time True $ renderMarkdown text)
         | otherwise -> pure ()
 
 
@@ -361,3 +369,41 @@ instance Sw.ToSchema WhisperMessage where
 
 instance HasSwagger WebSocket where
   toSwagger _ = mempty & Sw.paths . at "/" ?~ mempty
+
+
+----------------------------------------------------------------------
+-- markdown-support
+
+renderMarkdown :: Text -> Text
+renderMarkdown mdText =
+  TL.toStrict . renderHtml $ markdown markdownDef (TL.fromStrict mdText)
+  where
+    markdownDef = def
+      { msBlockCodeRenderer = renderer
+      , msXssProtect        = False
+      }
+    renderer lang (src,_) = renderLang lang src
+
+
+renderLang :: Maybe Text -> Text -> TBH.Html
+renderLang lang src =
+  Sky.formatHtmlBlock Sky.defaultFormatOpts
+  $ highlightAs (fromMaybe "haskell" lang) src
+
+
+-- | should be used to export a .css file for the syntax-highlighting
+-- use `writeFile "kate.css" (T.unpack cssStyles)
+cssStyles :: Text
+cssStyles = T.pack $ Sky.styleToCss Sky.pygments
+
+
+highlightAs :: Text -> Text -> [SourceLine]
+highlightAs lang source =
+  case Sky.lookupSyntax lang Sky.defaultSyntaxMap of
+    Nothing -> highlightAs "haskell" source
+    Just syntax ->
+      case Sky.tokenize config syntax source of
+        Left _ -> []
+        Right ls -> ls
+  where
+    config = TokenizerConfig Sky.defaultSyntaxMap False

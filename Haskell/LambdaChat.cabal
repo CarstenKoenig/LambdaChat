@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5e428a1382bbbc59560c75bc73a43486529f9c92853f305c6a2d4b42ba72783a
+-- hash: ac9c2b15f424cd0bfd58f698123755ae9c7e881563625ef4f99144a69a2ce5a0
 
 name:           LambdaChat
 version:        0.1.0.0
@@ -27,17 +27,21 @@ executable LambdaChat
   build-depends:
       aeson
     , base >=4.7 && <5
+    , blaze-html
     , bytestring
     , containers
+    , data-default
     , http-types
     , lens
     , lucid
+    , markdown
     , mtl
     , servant
     , servant-lucid
     , servant-server
     , servant-swagger
     , servant-websockets
+    , skylighting
     , stm
     , swagger2
     , text
