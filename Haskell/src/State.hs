@@ -34,13 +34,13 @@ initialize = liftIO $ do
   return $ Handle regUsers chan
 
 
-useChannel :: (MonadIO m, Rdr.MonadReader Handle m) => (Ch.Handle -> m a) -> m a
+useChannel :: Rdr.MonadReader Handle m => (Ch.Handle -> m a) -> m a
 useChannel f = do
   handle <- Rdr.ask
   f (broadcastChannel handle)
 
 
-useUsers :: (MonadIO m, Rdr.MonadReader Handle m) => (Us.Handle -> m a) -> m a
+useUsers :: Rdr.MonadReader Handle m => (Us.Handle -> m a) -> m a
 useUsers f = do
   handle <- Rdr.ask
   f (registeredUsers handle)
