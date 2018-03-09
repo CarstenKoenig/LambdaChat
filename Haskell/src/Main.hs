@@ -11,11 +11,11 @@ import Control.Lens (at, (&), (.~), (?~))
 import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
-import Handler
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.Cors as Cors
 import Servant
 import Servant.API.WebSocket
+import Servant.Handler
 import qualified Servant.HtmlApi as Hapi
 import qualified Servant.MessageApi as Mapi
 import Servant.Swagger

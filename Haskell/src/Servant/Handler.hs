@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Handler
+module Servant.Handler
   ( ChatHandler
   , toServantHandler
   , listAllUsers

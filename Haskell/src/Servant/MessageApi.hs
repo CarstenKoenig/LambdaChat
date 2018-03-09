@@ -12,12 +12,12 @@ import qualified Channel as Ch
 import Control.Lens ((^.)) 
 import Control.Monad.Except (throwError)
 import qualified Control.Monad.Reader as R
-import Handler
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import Network.WebSockets.Connection (Connection)
 import Servant
 import Servant.API.WebSocket
+import Servant.Handler
 import Servant.Server (err404)
 import qualified State as S
 

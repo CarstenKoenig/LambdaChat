@@ -9,7 +9,7 @@ module Servant.UserApi
   ) where
 
 import Control.Monad.Except (throwError)
-import Handler
+import Servant.Handler
 import qualified Model.Login as L
 import qualified Model.User as U
 import Servant
