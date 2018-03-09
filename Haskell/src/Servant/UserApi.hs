@@ -8,13 +8,13 @@ module Servant.UserApi
   , handler
   ) where
 
-import Control.Monad.Except (throwError)
-import Servant.Handler
+import           Control.Monad.Except (throwError)
 import qualified Model.Login as L
 import qualified Model.User as U
-import Servant
-import Servant.Server (err404)
-
+import           Servant
+import           Servant.Handler
+import           Servant.Server (err404)
+import qualified State as S
 
 type API =
   "users" :>
@@ -27,8 +27,10 @@ type API =
 ----------------------------------------------------------------------
 -- Servant-Handler
 
-handler :: ServerT API ChatHandler
-handler = allUsers :<|> getUserHandler :<|> loginHandler
+handler :: S.Handle -> ServerT API Handler
+handler handle =
+  enter (toServantHandler handle) $ allUsers :<|> getUserHandler :<|> loginHandler
+
   where
     allUsers =
       listAllUsers

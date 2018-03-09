@@ -13,10 +13,10 @@ module State
   ) where
 
 
-import qualified Channel as Ch
+import qualified Domain.Channel as Ch
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Reader as Rdr
-import qualified Users as Us
+import qualified Domain.Users as Us
 
 ----------------------------------------------------------------------
 -- global state

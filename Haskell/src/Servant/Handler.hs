@@ -14,16 +14,16 @@ module Servant.Handler
   , whisperMessage
   ) where
 
-import qualified Channel as Ch
 import Control.Monad.Except (throwError)
 import qualified Control.Monad.Reader as R
 import Data.Text (Text)
+import qualified Domain.Channel as Ch
+import qualified Domain.Users as Us
 import qualified Model.Markdown as MD
 import qualified Model.User as U
 import Servant
 import Servant.Server (err401)
 import qualified State as S
-import qualified Users as Us
 
 
 type ChatHandler = R.ReaderT S.Handle Handler

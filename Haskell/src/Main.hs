@@ -7,21 +7,20 @@ module Main
   ( main
   ) where
 
-import Control.Lens (at, (&), (.~), (?~))
-import Data.Proxy (Proxy(..))
-import Data.Swagger (Swagger)
+import           Control.Lens (at, (&), (.~), (?~))
+import           Data.Proxy (Proxy(..))
+import           Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.Cors as Cors
-import Servant
-import Servant.API.WebSocket
-import Servant.Handler
+import           Servant
+import           Servant.API.WebSocket
 import qualified Servant.HtmlApi as Hapi
 import qualified Servant.MessageApi as Mapi
-import Servant.Swagger
+import           Servant.Swagger
 import qualified Servant.UserApi as Uapi
 import qualified State as S
-import System.Environment (lookupEnv)
+import           System.Environment (lookupEnv)
 
 ----------------------------------------------------------------------
 -- entry point
@@ -48,11 +47,10 @@ type API = Uapi.API :<|> Mapi.API
 
 
 servantApp :: S.Handle -> Application
-servantApp env =
+servantApp h =
   serve
-    (Proxy :: Proxy (API :<|> SwaggerAPI :<|> Hapi.API)) $ enter
-    (toServantHandler env)
-    (Uapi.handler :<|> Mapi.handler) :<|> pure swaggerHandler :<|> Hapi.handler
+    (Proxy :: Proxy (API :<|> SwaggerAPI :<|> Hapi.API)) $ 
+    (Uapi.handler h :<|> Mapi.handler h) :<|> pure swaggerHandler :<|> Hapi.handler
 
 
 ----------------------------------------------------------------------

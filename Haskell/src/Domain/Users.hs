@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Users
+module Domain.Users
   ( Handle
   , initialize
   , listAll

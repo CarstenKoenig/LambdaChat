@@ -8,17 +8,17 @@ module Servant.MessageApi
   , handler
   ) where
 
-import qualified Channel as Ch
-import Control.Lens ((^.)) 
-import Control.Monad.Except (throwError)
+import           Control.Lens ((^.)) 
+import           Control.Monad.Except (throwError)
 import qualified Control.Monad.Reader as R
+import qualified Domain.Channel as Ch
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
-import Network.WebSockets.Connection (Connection)
-import Servant
-import Servant.API.WebSocket
-import Servant.Handler
-import Servant.Server (err404)
+import           Network.WebSockets.Connection (Connection)
+import           Servant
+import           Servant.API.WebSocket
+import           Servant.Handler
+import           Servant.Server (err404)
 import qualified State as S
 
 
@@ -33,8 +33,9 @@ type API =
 -- Servant-Handler
 
 
-handler :: ServerT API ChatHandler
-handler = messageReceivedHandler :<|> whisperReceiveHandler :<|> messageWebsocketHandler
+handler :: S.Handle -> ServerT API Handler
+handler handle =
+  enter (toServantHandler handle) $ messageReceivedHandler :<|> whisperReceiveHandler :<|> messageWebsocketHandler
 
 
 messageReceivedHandler :: Msgs.SendMessage -> ChatHandler NoContent

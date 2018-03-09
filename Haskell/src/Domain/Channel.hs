@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Channel
+module Domain.Channel
   ( Handle
   , initialize
   , broadcast

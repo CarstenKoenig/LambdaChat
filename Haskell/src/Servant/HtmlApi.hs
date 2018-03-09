@@ -8,13 +8,12 @@ module Servant.HtmlApi
   , handler
   ) where
 
-import Control.Monad.IO.Class (liftIO)
+import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Lucid
-import Lucid (Html)
-import Servant
-import Servant.HTML.Lucid (HTML)
-
+import           Lucid (Html)
+import           Servant
+import           Servant.HTML.Lucid (HTML)
 
 type API = Get '[HTML] (Html ()) :<|> Raw
 
