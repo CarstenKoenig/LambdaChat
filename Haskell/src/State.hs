@@ -5,34 +5,31 @@
 {-# LANGUAGE TemplateHaskell #-}
 module State
   ( Handle
-  , ChanMessage (..)
   , registeredUsers
-  , messageChannel
   , initialize
+  , useChannel
   ) where
 
-import qualified Control.Concurrent.STM.TChan as STM
 import qualified Control.Concurrent.STM.TVar as STM
 import qualified Data.Map.Strict as Map
-import qualified Model.Markdown as MD
 import qualified Model.User as U
+import qualified Channel as Ch
 
 ----------------------------------------------------------------------
 -- global state
 
 data Handle = Handle
-  { registeredUsers :: STM.TVar U.Users
-  , messageChannel  :: STM.TChan ChanMessage
+  { registeredUsers  :: STM.TVar U.Users
+  , broadcastChannel :: Ch.Handle
   }
 
 
-initialize :: IO Handle 
+initialize :: IO Handle
 initialize = do
   regUsers <- STM.newTVarIO (U.Users Map.empty Map.empty)
-  chan <- STM.newBroadcastTChanIO
+  chan <- Ch.initialize
   return $ Handle regUsers chan
 
 
-data ChanMessage
-  = Broadcast U.UserName MD.Markdown
-  | Whisper U.UserId U.UserName MD.Markdown
+useChannel :: Handle -> (Ch.Handle -> a) -> a
+useChannel handle f = f (broadcastChannel handle)

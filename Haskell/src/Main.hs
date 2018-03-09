@@ -3,25 +3,22 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Main where
+module Main
+  ( main
+  ) where
 
 import Control.Concurrent.STM (STM, atomically)
-import qualified Control.Concurrent.STM.TChan as SC
 import qualified Control.Concurrent.STM.TVar as SV
 import Control.Lens (view, set, at, (^.), (&), (.~), (?~))
-import Control.Monad (forever)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
-import Data.Aeson (encode)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust)
 import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
 import Data.Text (Text)
-import Data.Time (getCurrentTime)
 import qualified Lucid
 import Lucid (Html)
 import qualified Model.Login as L
@@ -31,7 +28,6 @@ import qualified Model.User as U
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.Cors as Cors
 import Network.WebSockets.Connection (Connection)
-import qualified Network.WebSockets.Connection as WS
 import Servant
 import Servant.API.WebSocket
 import Servant.HTML.Lucid (HTML)
@@ -39,6 +35,7 @@ import Servant.Server (err401, err404)
 import Servant.Swagger
 import qualified State as S
 import System.Environment (lookupEnv)
+import qualified Channel as Ch
 
 ----------------------------------------------------------------------
 -- entry point
@@ -133,20 +130,8 @@ whisperReceiveHandler sendMsg = do
 
 messageWebsocketHandler :: U.UserId -> Connection -> ChatM ()
 messageWebsocketHandler uId connection = do
-  uName <- fromJust . fmap (view U.userName) <$> getUser uId
-  liftIO $ WS.forkPingThread connection 10
-  broadcastChan <- R.asks S.messageChannel
-  chan <- liftSTM $ SC.dupTChan broadcastChan
-  liftIO $ forever $ do
-    msg <- atomically $ SC.readTChan chan
-    time <- liftIO getCurrentTime
-    case msg of
-      S.Broadcast senderName text ->
-        WS.sendTextData connection (encode $ Msgs.Message senderName text time False $ MD.renderHtml text)
-      S.Whisper receiverId senderName text
-        | receiverId == uId && senderName /= uName ->
-          WS.sendTextData connection (encode $ Msgs.Message senderName text time True $ MD.renderHtml text)
-        | otherwise -> pure ()
+  handle <- R.ask
+  S.useChannel handle (\ch -> Ch.connectUser ch uId connection)
 
 
 indexHandler :: Handler (Html ())
@@ -198,13 +183,15 @@ loginUser name password = do
 
 
 broadcastMessage :: U.UserName -> MD.Markdown -> ChatM ()
-broadcastMessage senderName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (S.messageChannel env) (S.Broadcast senderName text))
+broadcastMessage senderName text = do
+  handle <- R.ask
+  S.useChannel handle (\ch -> Ch.broadcast ch senderName text)
 
 
 whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatM ()
-whisperMessage receiverId senderName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (S.messageChannel env) (S.Whisper receiverId senderName text))
+whisperMessage receiverId senderName text = do
+  handle <- R.ask
+  S.useChannel handle (\ch -> Ch.whisper ch receiverId senderName text)
 
 
 readRegisteredUsers :: (U.Users -> a) -> ChatM a
