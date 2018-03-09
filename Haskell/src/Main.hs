@@ -16,11 +16,10 @@ import qualified Data.ByteString as BS
 import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
-import Data.Text (Text)
+import Handler
 import qualified Lucid
 import Lucid (Html)
 import qualified Model.Login as L
-import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import qualified Network.Wai.Handler.Warp as Warp
@@ -29,11 +28,10 @@ import Network.WebSockets.Connection (Connection)
 import Servant
 import Servant.API.WebSocket
 import Servant.HTML.Lucid (HTML)
-import Servant.Server (err401, err404)
+import Servant.Server (err404)
 import Servant.Swagger
 import qualified State as S
 import System.Environment (lookupEnv)
-import qualified Users as Us
 
 ----------------------------------------------------------------------
 -- entry point
@@ -56,7 +54,7 @@ servantApp :: S.Handle -> Application
 servantApp env =
   serve
     (Proxy :: Proxy (API :<|> SwaggerAPI :<|> HtmlAPI)) $
-    enter (chatMToHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler :<|> indexHandler :<|> serveStaticFiles
+    enter (toServantHandler env) (userHandler :<|> messagesHandler) :<|> pure swaggerHandler :<|> indexHandler :<|> serveStaticFiles
 
 ----------------------------------------------------------------------
 -- Servant-API
@@ -84,7 +82,7 @@ type HtmlAPI = Get '[HTML] (Html ()) :<|> Raw
 ----------------------------------------------------------------------
 -- Servant-Handler
 
-userHandler :: ServerT UserAPI ChatM
+userHandler :: ServerT UserAPI ChatHandler
 userHandler = allUsers :<|> getUserHandler :<|> loginHandler
   where
     allUsers =
@@ -99,11 +97,11 @@ userHandler = allUsers :<|> getUserHandler :<|> loginHandler
       loginUser (L.loginName reg) (L.loginPassword reg)
 
 
-messagesHandler :: ServerT MessageAPI ChatM
+messagesHandler :: ServerT MessageAPI ChatHandler
 messagesHandler = messageReceivedHandler :<|> whisperReceiveHandler :<|> messageWebsocketHandler
 
 
-messageReceivedHandler :: Msgs.SendMessage -> ChatM NoContent
+messageReceivedHandler :: Msgs.SendMessage -> ChatHandler NoContent
 messageReceivedHandler sendMsg = do
   foundUser <- getUser (sendMsg^.Msgs.sendSender)
   case foundUser of
@@ -114,7 +112,7 @@ messageReceivedHandler sendMsg = do
       throwError $ err404 { errBody = "user not found" }
 
 
-whisperReceiveHandler :: Msgs.WhisperMessage -> ChatM NoContent
+whisperReceiveHandler :: Msgs.WhisperMessage -> ChatHandler NoContent
 whisperReceiveHandler sendMsg = do
   foundSender <- getUser (sendMsg^.Msgs.whispSender)
   foundReceiverId <- getUserId (sendMsg^.Msgs.whispReceiver)
@@ -139,49 +137,6 @@ indexHandler = liftIO $ do
 serveStaticFiles :: Tagged Handler Application
 serveStaticFiles = serveDirectoryWebApp "static"
 
-
-chatMToHandler :: S.Handle -> ChatM :~> Handler
-chatMToHandler handle = NT (`R.runReaderT` handle)
-
-
-----------------------------------------------------------------------
--- monad stack
-
-type ChatM = R.ReaderT S.Handle Handler
-
-listAllUsers :: ChatM [U.PublicInfo]
-listAllUsers =
-  S.useUsers Us.listAll
-
-
-getUser :: U.UserId -> ChatM (Maybe U.User)
-getUser uId =
-  S.useUsers (`Us.getUser` uId)
-
-
-getUserId :: U.UserName -> ChatM (Maybe U.UserId)
-getUserId user =
-  S.useUsers (`Us.getUserId` user)
-
-
-loginUser :: U.UserName -> Text -> ChatM U.UserId
-loginUser name password = do
-  res <- S.useUsers (\uh -> Us.loginUser uh name password)
-  case res of
-    Just newId ->
-      return newId
-    Nothing ->
-        throwError $ err401 { errBody = "there is already a user with this name logged in and you don't know his password" }
-
-
-broadcastMessage :: U.UserName -> MD.Markdown -> ChatM ()
-broadcastMessage senderName text =
-  S.useChannel (\ch -> Ch.broadcast ch senderName text)
-
-
-whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatM ()
-whisperMessage receiverId senderName text =
-  S.useChannel (\ch -> Ch.whisper ch receiverId senderName text)
 
 ----------------------------------------------------------------------
 -- swagger
