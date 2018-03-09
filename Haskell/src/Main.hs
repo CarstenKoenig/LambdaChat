@@ -7,14 +7,12 @@ module Main
   ( main
   ) where
 
-import Control.Concurrent.STM (STM, atomically)
-import qualified Control.Concurrent.STM.TVar as SV
-import Control.Lens (view, set, at, (^.), (&), (.~), (?~))
+import qualified Channel as Ch
+import Control.Lens (at, (^.), (&), (.~), (?~))
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as R
 import qualified Data.ByteString as BS
-import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import Data.Swagger (Swagger)
 import qualified Data.Swagger as Sw
@@ -35,7 +33,7 @@ import Servant.Server (err401, err404)
 import Servant.Swagger
 import qualified State as S
 import System.Environment (lookupEnv)
-import qualified Channel as Ch
+import qualified Users as Us
 
 ----------------------------------------------------------------------
 -- entry point
@@ -153,32 +151,31 @@ chatMToHandler handle = NT (`R.runReaderT` handle)
 type ChatM = R.ReaderT S.Handle Handler
 
 listAllUsers :: ChatM [U.PublicInfo]
-listAllUsers =
-  readRegisteredUsers (fmap toInfo . Map.elems . U._userFromId)
-  where toInfo user = U.publicInfo user
+listAllUsers = do
+  handle <- R.ask
+  S.useUsers handle Us.listAll
+
 
 getUser :: U.UserId -> ChatM (Maybe U.User)
-getUser uId = readRegisteredUsers (view $ U.userFromId . at uId)
+getUser uId = do
+  handle <- R.ask
+  S.useUsers handle (\uh -> Us.getUser uh uId)
 
 
 getUserId :: U.UserName -> ChatM (Maybe U.UserId)
-getUserId user = readRegisteredUsers (view $ U.userIdFromName . at user)
+getUserId user = do
+  handle <- R.ask
+  S.useUsers handle (\uh -> Us.getUserId uh user)
 
 
 loginUser :: U.UserName -> Text -> ChatM U.UserId
 loginUser name password = do
-  alreadyRegisteredId <- readRegisteredUsers (view (U.userIdFromName . at name))
-  alreadyRegistered <- maybe (return Nothing) getUser alreadyRegisteredId
-  case alreadyRegistered of
-    Nothing -> do
-      newId <- liftIO U.newUserId
-      let user = U.User newId name password
-      modifyRegisteredUsers (set (U.userFromId . at newId) (Just user) . set (U.userIdFromName . at name) (Just newId))
+  handle <- R.ask
+  res <- S.useUsers handle (\uh -> Us.loginUser uh name password)
+  case res of
+    Just newId ->
       return newId
-    Just found
-      | found^.U.userPassword == password ->
-          return $ found^.U.userId
-      | otherwise ->
+    Nothing ->
         throwError $ err401 { errBody = "there is already a user with this name logged in and you don't know his password" }
 
 
@@ -192,21 +189,6 @@ whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatM ()
 whisperMessage receiverId senderName text = do
   handle <- R.ask
   S.useChannel handle (\ch -> Ch.whisper ch receiverId senderName text)
-
-
-readRegisteredUsers :: (U.Users -> a) -> ChatM a
-readRegisteredUsers f =
-  liftSTM =<< R.asks (\ env -> f <$> SV.readTVar (S.registeredUsers env))
-
-
-modifyRegisteredUsers :: (U.Users -> U.Users) -> ChatM ()
-modifyRegisteredUsers modify =
-  liftSTM =<< R.asks (\ env -> SV.modifyTVar (S.registeredUsers env) modify)
-
-
-liftSTM :: STM a -> ChatM a
-liftSTM m = liftIO (atomically m)
-
 
 ----------------------------------------------------------------------
 -- swagger

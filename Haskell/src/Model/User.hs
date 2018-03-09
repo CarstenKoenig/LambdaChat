@@ -6,8 +6,8 @@
 module Model.User where
 
 import Control.Lens (makeLenses, mapped, (&), (?~))
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (ToJSON, toJSON)
-import Data.Map.Strict (Map)
 import qualified Data.Swagger as Sw
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -29,15 +29,9 @@ data User = User
 makeLenses ''User
 
 
-newUserId :: IO UserId
-newUserId = URnd.nextRandom
+newUserId :: MonadIO m => m UserId
+newUserId = liftIO URnd.nextRandom
 
-
-data Users = Users
-  { _userFromId     :: Map UserId User
-  , _userIdFromName :: Map UserName UserId
-  }
-makeLenses ''Users
 
 
 newtype PublicInfo = PublicInfo { username :: UserName }

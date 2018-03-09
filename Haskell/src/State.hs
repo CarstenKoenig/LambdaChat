@@ -8,28 +8,31 @@ module State
   , registeredUsers
   , initialize
   , useChannel
+  , useUsers
   ) where
 
-import qualified Control.Concurrent.STM.TVar as STM
-import qualified Data.Map.Strict as Map
-import qualified Model.User as U
 import qualified Channel as Ch
+import qualified Users as Us
 
 ----------------------------------------------------------------------
 -- global state
 
 data Handle = Handle
-  { registeredUsers  :: STM.TVar U.Users
+  { registeredUsers  :: Us.Handle
   , broadcastChannel :: Ch.Handle
   }
 
 
 initialize :: IO Handle
 initialize = do
-  regUsers <- STM.newTVarIO (U.Users Map.empty Map.empty)
+  regUsers <- Us.initialize
   chan <- Ch.initialize
   return $ Handle regUsers chan
 
 
 useChannel :: Handle -> (Ch.Handle -> a) -> a
 useChannel handle f = f (broadcastChannel handle)
+
+
+useUsers :: Handle -> (Us.Handle -> a) -> a
+useUsers handle f = f (registeredUsers handle)
