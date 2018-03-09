@@ -37,47 +37,27 @@ import Servant.API.WebSocket
 import Servant.HTML.Lucid (HTML)
 import Servant.Server (err401, err404)
 import Servant.Swagger
+import qualified State as S
 import System.Environment (lookupEnv)
-
-----------------------------------------------------------------------
--- global state
-
-data Environment = Environment
-  { registeredUsers :: SV.TVar U.Users
-  , messageChannel  :: SC.TChan ChanMessage
-  }
-
-
-newEnv :: IO Environment
-newEnv = do
-  regUsers <- SV.newTVarIO (U.Users Map.empty Map.empty)
-  chan <- SC.newBroadcastTChanIO
-  return $ Environment regUsers chan
-
-
-data ChanMessage
-  = Broadcast U.UserName MD.Markdown
-  | Whisper U.UserId U.UserName MD.Markdown
-
 
 ----------------------------------------------------------------------
 -- entry point
 
 main :: IO ()
 main = do
-  env <- newEnv
+  handle <- S.initialize
 
   port <- maybe 8081 read <$> lookupEnv "PORT"
 
   putStrLn $ "serving app on http://localhost:" ++ show port
-  Warp.run port $ Cors.cors (const $ Just policy) $ servantApp env
+  Warp.run port $ Cors.cors (const $ Just policy) $ servantApp handle
   where
     policy = Cors.simpleCorsResourcePolicy
         { Cors.corsRequestHeaders = ["Content-Type"]
         , Cors.corsMethods = "POST" : Cors.simpleMethods }
 
 
-servantApp :: Environment -> Application
+servantApp :: S.Handle -> Application
 servantApp env =
   serve
     (Proxy :: Proxy (API :<|> SwaggerAPI :<|> HtmlAPI)) $
@@ -155,15 +135,15 @@ messageWebsocketHandler :: U.UserId -> Connection -> ChatM ()
 messageWebsocketHandler uId connection = do
   uName <- fromJust . fmap (view U.userName) <$> getUser uId
   liftIO $ WS.forkPingThread connection 10
-  broadcastChan <- R.asks messageChannel
+  broadcastChan <- R.asks S.messageChannel
   chan <- liftSTM $ SC.dupTChan broadcastChan
   liftIO $ forever $ do
     msg <- atomically $ SC.readTChan chan
     time <- liftIO getCurrentTime
     case msg of
-      Broadcast senderName text ->
+      S.Broadcast senderName text ->
         WS.sendTextData connection (encode $ Msgs.Message senderName text time False $ MD.renderHtml text)
-      Whisper receiverId senderName text
+      S.Whisper receiverId senderName text
         | receiverId == uId && senderName /= uName ->
           WS.sendTextData connection (encode $ Msgs.Message senderName text time True $ MD.renderHtml text)
         | otherwise -> pure ()
@@ -178,14 +158,14 @@ serveStaticFiles :: Tagged Handler Application
 serveStaticFiles = serveDirectoryWebApp "static"
 
 
-chatMToHandler :: Environment -> ChatM :~> Handler
-chatMToHandler env = NT (`R.runReaderT` env)
+chatMToHandler :: S.Handle -> ChatM :~> Handler
+chatMToHandler handle = NT (`R.runReaderT` handle)
 
 
 ----------------------------------------------------------------------
 -- monad stack
 
-type ChatM = R.ReaderT Environment Handler
+type ChatM = R.ReaderT S.Handle Handler
 
 listAllUsers :: ChatM [U.PublicInfo]
 listAllUsers =
@@ -219,22 +199,22 @@ loginUser name password = do
 
 broadcastMessage :: U.UserName -> MD.Markdown -> ChatM ()
 broadcastMessage senderName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Broadcast senderName text))
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (S.messageChannel env) (S.Broadcast senderName text))
 
 
 whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatM ()
 whisperMessage receiverId senderName text =
-  liftSTM =<< R.asks (\ env -> SC.writeTChan (messageChannel env) (Whisper receiverId senderName text))
+  liftSTM =<< R.asks (\ env -> SC.writeTChan (S.messageChannel env) (S.Whisper receiverId senderName text))
 
 
 readRegisteredUsers :: (U.Users -> a) -> ChatM a
 readRegisteredUsers f =
-  liftSTM =<< R.asks (\ env -> f <$> SV.readTVar (registeredUsers env))
+  liftSTM =<< R.asks (\ env -> f <$> SV.readTVar (S.registeredUsers env))
 
 
 modifyRegisteredUsers :: (U.Users -> U.Users) -> ChatM ()
 modifyRegisteredUsers modify =
-  liftSTM =<< R.asks (\ env -> SV.modifyTVar (registeredUsers env) modify)
+  liftSTM =<< R.asks (\ env -> SV.modifyTVar (S.registeredUsers env) modify)
 
 
 liftSTM :: STM a -> ChatM a
