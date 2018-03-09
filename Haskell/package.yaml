@@ -38,6 +38,9 @@ dependencies:
   - warp
   - websockets
 
+ghc-options:
+  - -Wall
+
 executables:
   LambdaChat:
     source-dirs:      src
