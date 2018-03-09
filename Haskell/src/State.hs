@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -11,7 +12,10 @@ module State
   , useUsers
   ) where
 
+
 import qualified Channel as Ch
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Control.Monad.Reader as Rdr
 import qualified Users as Us
 
 ----------------------------------------------------------------------
@@ -23,16 +27,20 @@ data Handle = Handle
   }
 
 
-initialize :: IO Handle
-initialize = do
+initialize :: MonadIO m => m Handle
+initialize = liftIO $ do
   regUsers <- Us.initialize
   chan <- Ch.initialize
   return $ Handle regUsers chan
 
 
-useChannel :: Handle -> (Ch.Handle -> a) -> a
-useChannel handle f = f (broadcastChannel handle)
+useChannel :: (MonadIO m, Rdr.MonadReader Handle m) => (Ch.Handle -> m a) -> m a
+useChannel f = do
+  handle <- Rdr.ask
+  f (broadcastChannel handle)
 
 
-useUsers :: Handle -> (Us.Handle -> a) -> a
-useUsers handle f = f (registeredUsers handle)
+useUsers :: (MonadIO m, Rdr.MonadReader Handle m) => (Us.Handle -> m a) -> m a
+useUsers f = do
+  handle <- Rdr.ask
+  f (registeredUsers handle)

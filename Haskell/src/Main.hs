@@ -126,10 +126,9 @@ whisperReceiveHandler sendMsg = do
       throwError $ err404 { errBody = "unknown sender or receiver" }
 
 
-messageWebsocketHandler :: U.UserId -> Connection -> ChatM ()
-messageWebsocketHandler uId connection = do
-  handle <- R.ask
-  S.useChannel handle (\ch -> Ch.connectUser ch uId connection)
+messageWebsocketHandler :: U.UserId -> Connection -> R.ReaderT S.Handle Handler ()
+messageWebsocketHandler uId connection =
+  S.useChannel (\ch -> Ch.connectUser ch uId connection)
 
 
 indexHandler :: Handler (Html ())
@@ -151,27 +150,23 @@ chatMToHandler handle = NT (`R.runReaderT` handle)
 type ChatM = R.ReaderT S.Handle Handler
 
 listAllUsers :: ChatM [U.PublicInfo]
-listAllUsers = do
-  handle <- R.ask
-  S.useUsers handle Us.listAll
+listAllUsers =
+  S.useUsers Us.listAll
 
 
 getUser :: U.UserId -> ChatM (Maybe U.User)
-getUser uId = do
-  handle <- R.ask
-  S.useUsers handle (\uh -> Us.getUser uh uId)
+getUser uId =
+  S.useUsers (`Us.getUser` uId)
 
 
 getUserId :: U.UserName -> ChatM (Maybe U.UserId)
-getUserId user = do
-  handle <- R.ask
-  S.useUsers handle (\uh -> Us.getUserId uh user)
+getUserId user =
+  S.useUsers (`Us.getUserId` user)
 
 
 loginUser :: U.UserName -> Text -> ChatM U.UserId
 loginUser name password = do
-  handle <- R.ask
-  res <- S.useUsers handle (\uh -> Us.loginUser uh name password)
+  res <- S.useUsers (\uh -> Us.loginUser uh name password)
   case res of
     Just newId ->
       return newId
@@ -180,15 +175,13 @@ loginUser name password = do
 
 
 broadcastMessage :: U.UserName -> MD.Markdown -> ChatM ()
-broadcastMessage senderName text = do
-  handle <- R.ask
-  S.useChannel handle (\ch -> Ch.broadcast ch senderName text)
+broadcastMessage senderName text =
+  S.useChannel (\ch -> Ch.broadcast ch senderName text)
 
 
 whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatM ()
-whisperMessage receiverId senderName text = do
-  handle <- R.ask
-  S.useChannel handle (\ch -> Ch.whisper ch receiverId senderName text)
+whisperMessage receiverId senderName text =
+  S.useChannel (\ch -> Ch.whisper ch receiverId senderName text)
 
 ----------------------------------------------------------------------
 -- swagger
