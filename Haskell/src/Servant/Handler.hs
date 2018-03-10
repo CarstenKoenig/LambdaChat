@@ -3,6 +3,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+
 module Servant.Handler
   ( ChatHandler
   , toServantHandler
@@ -13,17 +16,18 @@ module Servant.Handler
   , logoutUser
   , broadcastMessage
   , whisperMessage
+  , systemMessage
   ) where
 
-import Control.Monad.Except (throwError)
+import           Control.Monad.Except (throwError)
 import qualified Control.Monad.Reader as R
-import Data.Text (Text)
+import           Data.Text (Text)
 import qualified Domain.Channel as Ch
 import qualified Domain.Users as Us
 import qualified Model.Markdown as MD
 import qualified Model.User as U
-import Servant
-import Servant.Server (err401)
+import           Servant
+import           Servant.Server (err401)
 import qualified State as S
 
 
@@ -52,7 +56,7 @@ loginUser :: U.UserName -> Text -> ChatHandler U.UserId
 loginUser name password = do
   res <- S.useUsers (\uh -> Us.loginUser uh name password)
   case res of
-    Just newId ->
+    Just newId -> do
       return newId
     Nothing ->
         throwError $ err401 { errBody = "there is already a user with this name logged in and you don't know his password" }
@@ -72,3 +76,9 @@ broadcastMessage senderName text =
 whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatHandler ()
 whisperMessage receiverId senderName text =
   S.useChannel (\ch -> Ch.whisper ch receiverId senderName text)
+
+
+systemMessage :: MD.Markdown -> ChatHandler ()
+systemMessage text =
+  S.useChannel (\ch -> Ch.systemMessage ch text)
+  

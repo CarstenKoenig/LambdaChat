@@ -6,6 +6,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Model.Markdown
   ( Markdown
+  , fromText
   , renderHtml
   , cssStyles
   )where
@@ -28,6 +29,10 @@ import Text.Markdown (MarkdownSettings(..), markdown)
 
 newtype Markdown = Markdown Text
   deriving (Eq, Show, Generic, ToJSON, FromJSON, IsString)
+
+
+fromText :: Text -> Markdown
+fromText = Markdown
 
 
 -- | should be used to export a .css file for the syntax-highlighting

@@ -43,8 +43,14 @@ type alias PostData =
     }
 
 
+type alias SystemData =
+    { htmlBody : String
+    }
+
+
 type Data
     = Post PostData
+    | System SystemData
 
 
 userInfoRequest : String -> UserId -> Http.Request User
@@ -144,7 +150,11 @@ messageDecoder =
 
         decodeData =
             Json.oneOf
-                [ Json.map3
+                [ Json.map
+                    SystemData
+                    (Json.field "_sysBody" Json.string)
+                    |> Json.map System
+                , Json.map3
                     PostData
                     (Json.field "_msgSender" Json.string)
                     (Json.field "_msgPrivate" Json.bool)

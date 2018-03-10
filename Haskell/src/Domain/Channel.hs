@@ -11,6 +11,7 @@ module Domain.Channel
   , getCachedMessages
   , broadcast
   , whisper
+  , systemMessage
   , connectUser
   ) where
 
@@ -84,6 +85,13 @@ whisper handle receiverId senderName text = liftIO $ do
   msg <- newMessage handle (Just receiverId) $ Msgs.createPost time senderName text True
   putStrLn $ "sending message to " ++ show receiverId ++ ": " ++ show msg
   atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage (Just receiverId) $ encode msg)
+
+
+systemMessage :: MonadIO m => Handle -> MD.Markdown -> m ()
+systemMessage handle text = liftIO $ do
+  time <- getCurrentTime
+  msg <- newMessage handle Nothing $ Msgs.createSystem time text
+  atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing $ encode msg)
 
 
 connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> U.User -> WS.Connection -> m ()

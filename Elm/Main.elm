@@ -45,7 +45,7 @@ type alias Model =
     , messageInputFocused : Bool
     , messageInputMouseOver : Bool
     , messageInput : String
-    , messages : Dict MessageId ChatMessage
+    , messages : Dict MessageId Message
     , ctrlKeyPressed : Bool
     , currentTime : Time
     }
@@ -69,12 +69,23 @@ type LoginModel
         }
 
 
+type Message
+    = Chat ChatMessage
+    | System SystemMessage
+
+
 type alias ChatMessage =
     { sender : String
     , htmlBody : String
     , time : Date
     , ownMessage : Bool
     , isPrivate : Bool
+    }
+
+
+type alias SystemMessage =
+    { htmlBody : String
+    , time : Date
     }
 
 
@@ -241,7 +252,10 @@ update msg model =
                 mapMsg msg =
                     case msg.data of
                         Api.Chat.Post post ->
-                            ( msg.messageNo, ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
+                            ( msg.messageNo, Chat <| ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
+
+                        Api.Chat.System log ->
+                            ( msg.messageNo, System <| SystemMessage log.htmlBody msg.time )
 
                 newMsgs =
                     Dict.union (Dict.fromList <| List.map mapMsg msgs) model.messages
@@ -470,17 +484,27 @@ viewInput model =
             ]
 
 
-viewMessages : Time -> Dict MessageId ChatMessage -> List (Html Msg)
+viewMessages : Time -> Dict MessageId Message -> List (Html Msg)
 viewMessages now =
     Dict.values
         >> List.reverse
         >> List.map (viewMessage now)
 
 
-viewMessage : Time -> ChatMessage -> Html Msg
-viewMessage now msg =
+viewMessage : Time -> Message -> Html Msg
+viewMessage time msg =
+    case msg of
+        Chat chatMsg ->
+            viewChatMessage time chatMsg
+
+        System sysMsg ->
+            viewSystemMessage time sysMsg
+
+
+viewChatMessage : Time -> ChatMessage -> Html Msg
+viewChatMessage now msg =
     H.div
-        [ Attr.class "card w-75 mb-2"
+        [ Attr.class "card w-75 mt-2 mb-2"
         , Attr.classList
             [ ( "float-right", not msg.ownMessage )
             , ( "text-white", msg.isPrivate || msg.ownMessage )
@@ -513,6 +537,32 @@ viewMessage now msg =
         , H.div
             [ Attr.class "card-body" ]
             [ rawHtml msg.htmlBody
+            ]
+        ]
+
+
+viewSystemMessage : Time -> SystemMessage -> Html Msg
+viewSystemMessage now msg =
+    H.div
+        [ Attr.class "card w-50 mt-2 mb-2 p-0" ]
+        [ H.div
+            [ Attr.class "card-body" ]
+            [ H.div
+                [ Attr.class "row" ]
+                [ H.div
+                    [ Attr.class "col-md-8" ]
+                    [ rawHtml msg.htmlBody ]
+                , H.div
+                    [ Attr.class "col" ]
+                    [ H.div
+                        [ Attr.class "float-right" ]
+                        [ H.h6
+                            []
+                            [ H.text (formatEllapsedTime now msg.time)
+                            ]
+                        ]
+                    ]
+                ]
             ]
         ]
 

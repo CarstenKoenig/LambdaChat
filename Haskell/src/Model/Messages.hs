@@ -21,12 +21,17 @@ import qualified Model.User as U
 
 type MessageId = Int
 
-data MessageData = Post
-  { _msgSender   :: U.UserName
-  , _msgText     :: MD.Markdown
-  , _msgHtmlBody :: Text
-  , _msgPrivate  :: Bool
-  } deriving (Eq, Show, Generic)
+data MessageData
+  = Post
+    { _msgSender   :: U.UserName
+    , _msgText     :: MD.Markdown
+    , _msgHtmlBody :: Text
+    , _msgPrivate  :: Bool
+    }
+  | System
+    { _sysBody     :: Text
+    }
+  deriving (Eq, Show, Generic)
 
 instance ToJSON MessageData
 
@@ -52,6 +57,12 @@ createPost :: UTCTime -> U.UserName -> MD.Markdown -> Bool -> MessageId -> Messa
 createPost time userN mdText isPrivate mId =
   let htmlBod = MD.renderHtml mdText
   in createMessage mId time (Post userN mdText htmlBod isPrivate)
+
+
+createSystem :: UTCTime -> MD.Markdown -> MessageId -> Message
+createSystem time mdText mId =
+  let htmlBod = MD.renderHtml mdText
+  in createMessage mId time (System htmlBod)
 
 
 data SendMessage = SendMessage
