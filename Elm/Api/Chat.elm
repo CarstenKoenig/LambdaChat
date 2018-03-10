@@ -124,13 +124,18 @@ postMessage baseUrl (UserId id) message =
             }
 
 
-webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> UserId -> Sub msg
-webSocketSubscription toMsg baseUrl (UserId id) =
+webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> Maybe UserId -> Sub msg
+webSocketSubscription toMsg baseUrl userOpt =
     let
         decode =
             Json.decodeString messageDecoder >> toMsg
     in
-        Ws.listen (baseUrl ++ "/messages/" ++ id ++ "/stream") decode
+        case userOpt of
+            Just (UserId id) ->
+                Ws.listen (baseUrl ++ "/messages/" ++ id ++ "/stream") decode
+
+            Nothing ->
+                Ws.listen (baseUrl ++ "/messages/public") decode
 
 
 messageDecoder : Json.Decoder ReceivedMessage

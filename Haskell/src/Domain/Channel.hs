@@ -94,9 +94,9 @@ systemMessage handle text = liftIO $ do
   atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing $ encode msg)
 
 
-connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> U.User -> WS.Connection -> m ()
+connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> Maybe (U.User) -> WS.Connection -> m ()
 connectUser (Handle broadcastChan _ _) user connection = do
-  liftIO $ putStrLn $ "user " ++ show (U._userName user) ++ " connected"
+  liftIO $ putStrLn $ "user " ++ show (maybe "<annonymous>" U._userName user) ++ " connected"
   go `catch` closed
   where
     go = liftIO $ do
@@ -107,11 +107,11 @@ connectUser (Handle broadcastChan _ _) user connection = do
         ChanMessage receiverId' textData <- atomically $ STM.readTChan chan
         case receiverId' of
           Just receiverId
-            | receiverId == (U._userId user) ->
+            | Just receiverId == (U._userId <$> user) ->
               WS.sendTextData connection textData
           _ ->
             WS.sendTextData connection textData
 
     closed :: SomeException -> m ()
     closed _ = liftIO $
-      putStrLn $ "user " ++ show (U._userName user) ++ " disconnected"
+      putStrLn $ "user " ++ show (maybe "<annonymous>" U._userName user) ++ " disconnected"

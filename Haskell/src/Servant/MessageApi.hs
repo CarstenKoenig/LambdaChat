@@ -21,12 +21,12 @@ import           Servant.Handler
 import           Servant.Server (err404)
 import qualified State as S
 
-
 type API =
   "messages" :>
   (ReqBody '[JSON] Msgs.SendMessage :> PostNoContent '[JSON] NoContent
    :<|> "whisper" :> ReqBody '[JSON] Msgs.WhisperMessage :> PostNoContent '[JSON] NoContent
    :<|> Capture "userid" U.UserId :> QueryParam "fromid" Msgs.MessageId :> Get '[JSON] [Msgs.Message]
+   :<|> "public" :> WebSocket
    :<|> Capture "userid" U.UserId :> "stream" :> WebSocket
   )
 
@@ -39,6 +39,7 @@ handler handle = enter (toServantHandler handle) $
   messageReceivedHandler
   :<|> whisperReceiveHandler
   :<|> getMessagesHandler
+  :<|> publicWebsocketHandler
   :<|> messageWebsocketHandler
 
 
@@ -71,11 +72,16 @@ whisperReceiveHandler sendMsg = do
       throwError $ err404 { errBody = "unknown sender or receiver" }
 
 
+publicWebsocketHandler :: Connection -> ChatHandler ()
+publicWebsocketHandler connection = do
+  S.useChannel (\ch -> Ch.connectUser ch Nothing connection)
+
+
 messageWebsocketHandler :: U.UserId -> Connection -> ChatHandler ()
 messageWebsocketHandler uId connection = do
-  userOpt <- S.useUsers (\uh -> Users.getUser uh uId)
-  case userOpt of
-    Just user ->
-      S.useChannel (\ch -> Ch.connectUser ch user connection)
-    Nothing -> do
-      throwError $ err404 { errBody = "unknown user" }
+  user <- S.useUsers (\uh -> Users.getUser uh uId)
+  case user of
+    Nothing -> authErr
+    Just _  -> S.useChannel (\ch -> Ch.connectUser ch user connection)
+  where
+    authErr = throwError $ err404 { errBody = "unknown user" }

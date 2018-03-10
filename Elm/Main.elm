@@ -132,18 +132,16 @@ subscriptions model =
 
         clockSub =
             Time.every Time.second UpdateTime
+
+        wsSub =
+            Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
     in
         case model.login of
             LoggedIn user ->
-                let
-                    wsSub =
-                        user.id
-                            |> Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
-                in
-                    Sub.batch [ wsSub, kbdSub, clockSub ]
+                Sub.batch [ wsSub (Just user.id), kbdSub, clockSub ]
 
             _ ->
-                Sub.batch [ kbdSub, clockSub ]
+                Sub.batch [ wsSub Nothing, kbdSub, clockSub ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
