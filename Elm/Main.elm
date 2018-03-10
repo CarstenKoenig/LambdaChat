@@ -111,17 +111,22 @@ type Msg
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    { flags = flags
-    , error = Nothing
-    , login = Login { name = "", password = "" }
-    , messageInputFocused = False
-    , messageInputMouseOver = False
-    , messageInput = ""
-    , messages = Dict.empty
-    , ctrlKeyPressed = False
-    , currentTime = 0
-    }
-        ! []
+    let
+        cmd =
+            Api.Chat.getMessages flags.baseUri Nothing Nothing
+                |> Http.send (Result.mapError toString >> MessagesReceived)
+    in
+        { flags = flags
+        , error = Nothing
+        , login = Login { name = "", password = "" }
+        , messageInputFocused = False
+        , messageInputMouseOver = False
+        , messageInput = ""
+        , messages = Dict.empty
+        , ctrlKeyPressed = False
+        , currentTime = 0
+        }
+            ! [ cmd ]
 
 
 subscriptions : Model -> Sub Msg
@@ -221,10 +226,13 @@ update msg model =
                     model ! []
 
         UserInfoResponse (Ok user) ->
-            { model | login = LoggedIn user }
-                ! [ Api.Chat.getMessages model.flags.baseUri user.id Nothing
+            let
+                cmd =
+                    Api.Chat.getMessages model.flags.baseUri (Just user.id) Nothing
                         |> Http.send (Result.mapError toString >> MessagesReceived)
-                  ]
+            in
+                { model | login = LoggedIn user }
+                    ! [ cmd ]
 
         UserInfoResponse (Err err) ->
             { model | error = Just (toString err) }

@@ -23,7 +23,7 @@ import           Control.Monad.Catch (MonadCatch, catch, SomeException)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Aeson (encode)
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Maybe (mapMaybe, fromMaybe)
+import           Data.Maybe (mapMaybe)
 import           Data.Time (getCurrentTime)
 import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
@@ -60,13 +60,15 @@ newMessage handle receiverId createMsg = liftIO $ atomically $ do
   return msg
 
 
-getCachedMessages :: MonadIO m => U.UserId -> Handle -> m [(Msgs.MessageId, Msgs.Message)]
+getCachedMessages :: MonadIO m => Maybe U.UserId -> Handle -> m [(Msgs.MessageId, Msgs.Message)]
 getCachedMessages uid handle = liftIO $ atomically $
   reverse . mapMaybe accessible . snd
   <$> STM.readTVar (recentMessages handle)
   where
+    accessible (mid, Nothing, msg) =
+      Just (mid, msg)
     accessible (mid, recid, msg) =
-      if uid == fromMaybe uid recid
+      if uid == recid
       then Just (mid,msg)
       else Nothing
 

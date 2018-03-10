@@ -94,14 +94,22 @@ logoutRequest baseUrl (UserId id) =
             }
 
 
-getMessages : String -> UserId -> Maybe Int -> Http.Request (List ReceivedMessage)
-getMessages baseUrl (UserId id) fromMsgNo =
+getMessages : String -> Maybe UserId -> Maybe Int -> Http.Request (List ReceivedMessage)
+getMessages baseUrl userOpt fromMsgNo =
     let
         query =
             Maybe.map (\no -> "?fromid=" ++ toString no) fromMsgNo
                 |> Maybe.withDefault ""
+
+        uri =
+            case userOpt of
+                Just (UserId id) ->
+                    baseUrl ++ "/messages/" ++ id ++ query
+
+                Nothing ->
+                    baseUrl ++ "/messages/public" ++ query
     in
-        Http.get (baseUrl ++ "/messages/" ++ id ++ query) (Json.list messageDecoder)
+        Http.get uri (Json.list messageDecoder)
 
 
 postMessage : String -> UserId -> String -> Http.Request ()
@@ -132,10 +140,10 @@ webSocketSubscription toMsg baseUrl userOpt =
     in
         case userOpt of
             Just (UserId id) ->
-                Ws.listen (baseUrl ++ "/messages/" ++ id ++ "/stream") decode
+                Ws.listen (baseUrl ++ "/messages/stream/" ++ id) decode
 
             Nothing ->
-                Ws.listen (baseUrl ++ "/messages/public") decode
+                Ws.listen (baseUrl ++ "/messages/stream/public") decode
 
 
 messageDecoder : Json.Decoder ReceivedMessage
