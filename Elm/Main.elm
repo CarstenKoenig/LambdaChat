@@ -1,10 +1,25 @@
 module Main exposing (..)
 
+import Api.Chat exposing (UserId, User, MessageId, ReceivedMessage)
+import Date exposing (Date)
 import Html as H exposing (Html)
 import Html.Attributes as Attr
 import Html.Events as Ev
-import Api.Chat exposing (UserId, User, ReceivedMessage)
 import Http
+import Keyboard as Kbd
+import Markdown as MD
+import Time exposing (Time)
+import Dict exposing (Dict)
+
+
+ctrlKeyCode : Kbd.KeyCode
+ctrlKeyCode =
+    17
+
+
+enterKeyCode : Kbd.KeyCode
+enterKeyCode =
+    13
 
 
 type alias Flags =
@@ -27,9 +42,23 @@ type alias Model =
     { flags : Flags
     , error : Maybe String
     , login : LoginModel
+    , messageInputFocused : Bool
+    , messageInputMouseOver : Bool
     , messageInput : String
-    , messages : List ChatMessage
+    , messages : Dict MessageId Message
+    , ctrlKeyPressed : Bool
+    , currentTime : Time
     }
+
+
+currentUserName : Model -> Maybe String
+currentUserName model =
+    case model.login of
+        LoggedIn user ->
+            Just user.name
+
+        Login _ ->
+            Nothing
 
 
 type LoginModel
@@ -40,10 +69,23 @@ type LoginModel
         }
 
 
+type Message
+    = Chat ChatMessage
+    | System SystemMessage
+
+
 type alias ChatMessage =
     { sender : String
-    , message : String
+    , htmlBody : String
+    , time : Date
     , ownMessage : Bool
+    , isPrivate : Bool
+    }
+
+
+type alias SystemMessage =
+    { htmlBody : String
+    , time : Date
     }
 
 
@@ -52,13 +94,19 @@ type Msg
     | SubmitLoginResponse (Result Http.Error UserId)
     | UserInfoResponse (Result Http.Error User)
     | Logout
+    | SubmitLogoutResponse (Result Http.Error ())
     | InputLoginName String
     | InputLoginPassword String
     | InputMessage String
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
-    | MessageReceived (Result String Api.Chat.ReceivedMessage)
+    | MessagesReceived (Result String (List Api.Chat.ReceivedMessage))
     | DismissError
+    | KeyDown Kbd.KeyCode
+    | KeyUp Kbd.KeyCode
+    | MessageInputFocus Bool
+    | MessageInputMouseOver Bool
+    | UpdateTime Time
 
 
 init : Flags -> ( Model, Cmd Msg )
@@ -66,21 +114,36 @@ init flags =
     { flags = flags
     , error = Nothing
     , login = Login { name = "", password = "" }
+    , messageInputFocused = False
+    , messageInputMouseOver = False
     , messageInput = ""
-    , messages = []
+    , messages = Dict.empty
+    , ctrlKeyPressed = False
+    , currentTime = 0
     }
         ! []
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.login of
-        LoggedIn user ->
-            user.id
-                |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
+    let
+        kbdSub =
+            Sub.batch [ Kbd.downs KeyDown, Kbd.ups KeyUp ]
 
-        _ ->
-            Sub.none
+        clockSub =
+            Time.every Time.second UpdateTime
+    in
+        case model.login of
+            LoggedIn user ->
+                let
+                    wsSub =
+                        user.id
+                            |> Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
+                in
+                    Sub.batch [ wsSub, kbdSub, clockSub ]
+
+            _ ->
+                Sub.batch [ kbdSub, clockSub ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -107,7 +170,22 @@ update msg model =
                     model ! []
 
         Logout ->
-            { model | login = Login { name = "", password = "" } } ! []
+            let
+                cmd =
+                    case model.login of
+                        Login _ ->
+                            Cmd.none
+
+                        LoggedIn user ->
+                            Http.send SubmitLogoutResponse (Api.Chat.logoutRequest model.flags.baseUri user.id)
+            in
+                { model | login = Login { name = "", password = "" } } ! [ cmd ]
+
+        SubmitLogoutResponse (Ok ()) ->
+            model ! []
+
+        SubmitLogoutResponse (Err err) ->
+            { model | error = Just (toString err) } ! []
 
         SubmitLogin ->
             let
@@ -119,7 +197,11 @@ update msg model =
                         LoggedIn _ ->
                             Cmd.none
             in
-                { model | error = Nothing } ! [ cmd ]
+                { model
+                    | error = Nothing
+                    , messages = Dict.empty
+                }
+                    ! [ cmd ]
 
         SubmitLoginResponse (Ok userId) ->
             let
@@ -131,13 +213,20 @@ update msg model =
         SubmitLoginResponse (Err err) ->
             case model.login of
                 Login loginModel ->
-                    { model | login = Login { loginModel | password = "" } } ! []
+                    { model
+                        | login = Login { loginModel | password = "" }
+                        , error = Just (toString err)
+                    }
+                        ! []
 
                 LoggedIn _ ->
                     model ! []
 
         UserInfoResponse (Ok user) ->
-            { model | login = LoggedIn user } ! []
+            { model | login = LoggedIn user }
+                ! [ Api.Chat.getMessages model.flags.baseUri user.id Nothing
+                        |> Http.send (Result.mapError toString >> MessagesReceived)
+                  ]
 
         UserInfoResponse (Err err) ->
             { model | error = Just (toString err) }
@@ -149,28 +238,7 @@ update msg model =
 
         --- message sending/receiving
         SendMessage ->
-            let
-                cmd =
-                    case model.login of
-                        LoggedIn user ->
-                            Http.send SendMessageResponse (Api.Chat.postMessage model.flags.baseUri user.id model.messageInput)
-
-                        Login _ ->
-                            Cmd.none
-
-                newMessages =
-                    case model.login of
-                        LoggedIn user ->
-                            ChatMessage user.name model.messageInput True :: model.messages
-
-                        Login _ ->
-                            model.messages
-            in
-                { model
-                    | messageInput = ""
-                    , messages = newMessages
-                }
-                    ! [ cmd ]
+            sendMessage model
 
         SendMessageResponse (Ok ()) ->
             model ! []
@@ -179,17 +247,65 @@ update msg model =
             { model | error = Just (toString err) }
                 ! []
 
-        MessageReceived (Ok msg) ->
+        MessagesReceived (Ok msgs) ->
             let
+                mapMsg msg =
+                    case msg.data of
+                        Api.Chat.Post post ->
+                            ( msg.messageNo, Chat <| ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
+
+                        Api.Chat.System log ->
+                            ( msg.messageNo, System <| SystemMessage log.htmlBody msg.time )
+
                 newMsgs =
-                    ChatMessage msg.sender msg.message False :: model.messages
+                    Dict.union (Dict.fromList <| List.map mapMsg msgs) model.messages
             in
                 { model | messages = newMsgs }
                     ! []
 
-        MessageReceived (Err err) ->
+        MessagesReceived (Err err) ->
             { model | error = Just err }
                 ! []
+
+        MessageInputFocus focused ->
+            { model | messageInputFocused = focused } ! []
+
+        MessageInputMouseOver over ->
+            { model | messageInputMouseOver = over } ! []
+
+        KeyDown keyCode ->
+            if keyCode == ctrlKeyCode then
+                { model | ctrlKeyPressed = True } ! []
+            else if keyCode == enterKeyCode && model.ctrlKeyPressed && model.messageInputFocused then
+                sendMessage model
+            else
+                model ! []
+
+        KeyUp keyCode ->
+            if keyCode == ctrlKeyCode then
+                { model | ctrlKeyPressed = False } ! []
+            else
+                model ! []
+
+        UpdateTime time ->
+            { model | currentTime = time } ! []
+
+
+sendMessage : Model -> ( Model, Cmd Msg )
+sendMessage model =
+    if model.messageInput == "" then
+        model ! []
+    else
+        let
+            cmd =
+                case model.login of
+                    LoggedIn user ->
+                        Http.send SendMessageResponse (Api.Chat.postMessage model.flags.baseUri user.id model.messageInput)
+
+                    Login _ ->
+                        Cmd.none
+        in
+            { model | messageInput = "" } ! [ cmd ]
 
 
 view : Model -> Html Msg
@@ -296,9 +412,15 @@ viewUser user =
 
 viewChat : Model -> Html Msg
 viewChat model =
-    H.div
-        []
-        (viewInput model :: viewMessages model.messages)
+    let
+        -- used to make space for the fixed-bottom navbar (all elements should be seen when scrollable)
+        -- ignores expanded input though
+        bottomSpace =
+            H.div [ Attr.style [ ( "height", "75px" ) ] ] []
+    in
+        H.div
+            []
+            (viewInput model :: viewMessages model.currentTime model.messages ++ [ bottomSpace ])
 
 
 viewInput : Model -> Html Msg
@@ -324,13 +446,22 @@ viewInput model =
                     [ Attr.class "form-row align-items-center" ]
                     [ H.div
                         [ Attr.class "col" ]
-                        [ H.input
-                            [ Attr.type_ "text"
-                            , Attr.class "form-control mb-2"
+                        [ H.textarea
+                            [ Attr.class "form-control mb-2"
+                            , Attr.rows
+                                (if model.messageInputFocused || model.messageInputMouseOver then
+                                    5
+                                 else
+                                    1
+                                )
                             , Attr.placeholder "message"
-                            , Ev.onInput InputMessage
                             , Attr.value model.messageInput
                             , Attr.disabled isDisabled
+                            , Ev.onInput InputMessage
+                            , Ev.onMouseOver (MessageInputMouseOver True)
+                            , Ev.onMouseOut (MessageInputMouseOver False)
+                            , Ev.onFocus (MessageInputFocus True)
+                            , Ev.onBlur (MessageInputFocus False)
                             ]
                             []
                         ]
@@ -341,9 +472,10 @@ viewInput model =
                             , Attr.class "btn mb-2"
                             , Attr.classList
                                 [ ( "btn-outline-success", not isDisabled )
+                                , ( "btn-outline-warning", not isDisabled && model.messageInput == "" )
                                 , ( "btn-outline-danger", isDisabled )
                                 ]
-                            , Attr.disabled isDisabled
+                            , Attr.disabled (isDisabled || model.messageInput == "")
                             ]
                             [ H.text "send" ]
                         ]
@@ -352,21 +484,125 @@ viewInput model =
             ]
 
 
-viewMessages : List ChatMessage -> List (Html Msg)
-viewMessages =
-    List.map viewMessage
+viewMessages : Time -> Dict MessageId Message -> List (Html Msg)
+viewMessages now =
+    Dict.values
+        >> List.reverse
+        >> List.map (viewMessage now)
 
 
-viewMessage : ChatMessage -> Html Msg
-viewMessage msg =
+viewMessage : Time -> Message -> Html Msg
+viewMessage time msg =
+    case msg of
+        Chat chatMsg ->
+            viewChatMessage time chatMsg
+
+        System sysMsg ->
+            viewSystemMessage time sysMsg
+
+
+viewChatMessage : Time -> ChatMessage -> Html Msg
+viewChatMessage now msg =
     H.div
-        [ Attr.class "card w-75 mb-2"
+        [ Attr.class "card w-75 mt-2 mb-2"
         , Attr.classList
-            [ ( "float-right", not msg.ownMessage ) ]
-        ]
-        [ H.div
-            [ Attr.class "card-body" ]
-            [ H.h5 [ Attr.class "card-title" ] [ H.text msg.sender ]
-            , H.p [ Attr.class "card-text" ] [ H.text msg.message ]
+            [ ( "float-right", not msg.ownMessage )
+            , ( "text-white", msg.isPrivate || msg.ownMessage )
+            , ( "bg-info", msg.ownMessage )
+            , ( "bg-warning", msg.isPrivate )
             ]
         ]
+        [ H.div
+            [ Attr.class "card-header" ]
+            [ H.div
+                [ Attr.class "row" ]
+                [ H.div
+                    [ Attr.class "col-md-8" ]
+                    [ H.h5
+                        [ Attr.class "card-title" ]
+                        [ H.text msg.sender ]
+                    ]
+                , H.div
+                    [ Attr.class "col" ]
+                    [ H.div
+                        [ Attr.class "float-right" ]
+                        [ H.h6
+                            []
+                            [ H.text (formatEllapsedTime now msg.time)
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        , H.div
+            [ Attr.class "card-body" ]
+            [ rawHtml msg.htmlBody
+            ]
+        ]
+
+
+viewSystemMessage : Time -> SystemMessage -> Html Msg
+viewSystemMessage now msg =
+    H.div
+        [ Attr.class "card w-50 mt-2 mb-2 p-0" ]
+        [ H.div
+            [ Attr.class "card-body" ]
+            [ H.div
+                [ Attr.class "row" ]
+                [ H.div
+                    [ Attr.class "col-md-8" ]
+                    [ rawHtml msg.htmlBody ]
+                , H.div
+                    [ Attr.class "col" ]
+                    [ H.div
+                        [ Attr.class "float-right" ]
+                        [ H.h6
+                            []
+                            [ H.text (formatEllapsedTime now msg.time)
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+
+formatEllapsedTime : Time -> Date -> String
+formatEllapsedTime currentTime displayDate =
+    let
+        timeDiff =
+            currentTime - Date.toTime displayDate
+
+        ellapsedHours =
+            Time.inHours timeDiff
+
+        ellapsedMinutes =
+            Time.inMinutes timeDiff
+
+        ellapsedSeconds =
+            Time.inSeconds timeDiff
+    in
+        if round ellapsedHours >= 2 then
+            toString (round ellapsedHours) ++ " hours ago"
+        else if ellapsedHours >= 1 then
+            "one hour ago"
+        else if round ellapsedMinutes >= 2 then
+            toString (round ellapsedMinutes) ++ " minutes ago"
+        else if ellapsedMinutes >= 1 then
+            "one minute ago"
+        else
+            "just now"
+
+
+rawHtml : String -> Html msg
+rawHtml =
+    let
+        def =
+            MD.defaultOptions
+
+        options =
+            { def
+                | sanitize = False
+            }
+    in
+        MD.toHtmlWith options []

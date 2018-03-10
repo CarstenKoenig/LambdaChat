@@ -1,9 +1,10 @@
-module Api.Chat exposing (Login, User, UserId, ReceivedMessage, loginRequest, userInfoRequest, postMessage, webSocketSubscription)
+module Api.Chat exposing (Login, User, UserId, MessageId, ReceivedMessage, Data(..), PostData, loginRequest, logoutRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
 import Json.Encode as Enc
 import WebSocket as Ws
+import Date exposing (Date)
 
 
 type alias Login r =
@@ -16,6 +17,7 @@ type alias Login r =
 type alias User =
     { id : UserId
     , name : String
+    , isOnline : Bool
     }
 
 
@@ -23,17 +25,41 @@ type UserId
     = UserId String
 
 
+type alias MessageId =
+    Int
+
+
 type alias ReceivedMessage =
-    { sender : String
-    , message : String
+    { messageNo : MessageId
+    , time : Date
+    , data : Data
     }
+
+
+type alias PostData =
+    { sender : String
+    , isPrivate : Bool
+    , htmlBody : String
+    }
+
+
+type alias SystemData =
+    { htmlBody : String
+    }
+
+
+type Data
+    = Post PostData
+    | System SystemData
 
 
 userInfoRequest : String -> UserId -> Http.Request User
 userInfoRequest baseUrl (UserId id) =
     let
         userDecoder =
-            Json.map (User <| UserId id) (Json.field "username" Json.string)
+            Json.map2 (User (UserId id))
+                (Json.field "username" Json.string)
+                (Json.field "isonline" Json.bool)
     in
         Http.get (baseUrl ++ "/users/" ++ id) userDecoder
 
@@ -48,6 +74,34 @@ loginRequest baseUrl login =
                 ]
     in
         Http.post (baseUrl ++ "/users/login") (Http.jsonBody <| loginBody) (Json.string |> Json.map UserId)
+
+
+logoutRequest : String -> UserId -> Http.Request ()
+logoutRequest baseUrl (UserId id) =
+    let
+        logoutBody =
+            Enc.object
+                [ ( "userId", Enc.string id ) ]
+    in
+        Http.request
+            { method = "POST"
+            , headers = []
+            , url = baseUrl ++ "/users/logout"
+            , body = Http.jsonBody logoutBody
+            , expect = Http.expectStringResponse (always <| Ok ())
+            , timeout = Nothing
+            , withCredentials = False
+            }
+
+
+getMessages : String -> UserId -> Maybe Int -> Http.Request (List ReceivedMessage)
+getMessages baseUrl (UserId id) fromMsgNo =
+    let
+        query =
+            Maybe.map (\no -> "?fromid=" ++ toString no) fromMsgNo
+                |> Maybe.withDefault ""
+    in
+        Http.get (baseUrl ++ "/messages/" ++ id ++ query) (Json.list messageDecoder)
 
 
 postMessage : String -> UserId -> String -> Http.Request ()
@@ -73,10 +127,42 @@ postMessage baseUrl (UserId id) message =
 webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> UserId -> Sub msg
 webSocketSubscription toMsg baseUrl (UserId id) =
     let
-        decoder =
-            Json.map2 ReceivedMessage (Json.field "_msgSender" Json.string) (Json.field "_msgText" Json.string)
-
         decode =
-            Json.decodeString decoder >> toMsg
+            Json.decodeString messageDecoder >> toMsg
     in
-        Ws.listen (baseUrl ++ "/messages/" ++ id) decode
+        Ws.listen (baseUrl ++ "/messages/" ++ id ++ "/stream") decode
+
+
+messageDecoder : Json.Decoder ReceivedMessage
+messageDecoder =
+    let
+        decodeDate =
+            Json.string
+                |> Json.andThen
+                    (\dateStr ->
+                        case Date.fromString dateStr of
+                            Ok date ->
+                                Json.succeed date
+
+                            Err err ->
+                                Json.fail err
+                    )
+
+        decodeData =
+            Json.oneOf
+                [ Json.map
+                    SystemData
+                    (Json.field "_sysBody" Json.string)
+                    |> Json.map System
+                , Json.map3
+                    PostData
+                    (Json.field "_msgSender" Json.string)
+                    (Json.field "_msgPrivate" Json.bool)
+                    (Json.field "_msgHtmlBody" Json.string)
+                    |> Json.map Post
+                ]
+    in
+        Json.map3 ReceivedMessage
+            (Json.field "_msgId" Json.int)
+            (Json.field "_msgTime" decodeDate)
+            (Json.field "_msgData" decodeData)

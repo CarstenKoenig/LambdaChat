@@ -14,24 +14,33 @@ dependencies:
   - base >= 4.7 && < 5
   - aeson
   - bytestring
+  - blaze-html
   - containers
+  - data-default
+  - exceptions
   - http-types
   - lens
   - lucid
+  - markdown
   - mtl
   - servant
   - servant-lucid 
   - servant-server
   - servant-swagger
   - servant-websockets
+  - skylighting
   - stm
   - swagger2
   - text
+  - time
   - uuid
   - wai
   - wai-cors
   - warp
   - websockets
+
+ghc-options:
+  - -Wall
 
 executables:
   LambdaChat:

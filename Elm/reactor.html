@@ -6,10 +6,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-    <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="content/bootstrap.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
         crossorigin="anonymous">
-
+    <link rel="stylesheet" href="content/kate.css">
     <title>λ-Chat</title>
 </head>
 
@@ -19,22 +18,13 @@
     <script src="content/jquery.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
     <script src="content/popper.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
     <script src="content/bootstrap.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
-
     <script src="_compile/Main.elm"></script>
     <script>
-        var loc = window.location, wsUri;
-        if (loc.protocol === "https:") {
-            wsUri = "wss:";
-        }
-        else {
-            wsUri = "ws:";
-        }
-        wsUri += "//" + loc.host;
 
         var node = document.getElementById('main');
         var app = Elm.Main.embed(node, {
-            "baseUri": loc.protocol + "//" + loc.host,
-            "wsUri": wsUri
+            "baseUri": "http://localhost:8081",
+            "wsUri": "ws://localhost:8081"
         });
     </script>
 </body>
