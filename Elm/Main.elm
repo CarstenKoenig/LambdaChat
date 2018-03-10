@@ -1,6 +1,6 @@
 module Main exposing (..)
 
-import Api.Chat exposing (UserId, User, ReceivedMessage)
+import Api.Chat exposing (UserId, User, MessageId, ReceivedMessage)
 import Date exposing (Date)
 import Html as H exposing (Html)
 import Html.Attributes as Attr
@@ -9,6 +9,7 @@ import Http
 import Keyboard as Kbd
 import Markdown as MD
 import Time exposing (Time)
+import Dict exposing (Dict)
 
 
 ctrlKeyCode : Kbd.KeyCode
@@ -44,7 +45,7 @@ type alias Model =
     , messageInputFocused : Bool
     , messageInputMouseOver : Bool
     , messageInput : String
-    , messages : List ChatMessage
+    , messages : Dict MessageId ChatMessage
     , ctrlKeyPressed : Bool
     , currentTime : Time
     }
@@ -105,7 +106,7 @@ init flags =
     , messageInputFocused = False
     , messageInputMouseOver = False
     , messageInput = ""
-    , messages = []
+    , messages = Dict.empty
     , ctrlKeyPressed = False
     , currentTime = 0
     }
@@ -185,7 +186,11 @@ update msg model =
                         LoggedIn _ ->
                             Cmd.none
             in
-                { model | error = Nothing } ! [ cmd ]
+                { model
+                    | error = Nothing
+                    , messages = Dict.empty
+                }
+                    ! [ cmd ]
 
         SubmitLoginResponse (Ok userId) ->
             let
@@ -236,10 +241,10 @@ update msg model =
                 mapMsg msg =
                     case msg.data of
                         Api.Chat.Post post ->
-                            ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate
+                            ( msg.messageNo, ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
 
                 newMsgs =
-                    List.map mapMsg msgs ++ model.messages
+                    Dict.union (Dict.fromList <| List.map mapMsg msgs) model.messages
             in
                 { model | messages = newMsgs }
                     ! []
@@ -465,9 +470,11 @@ viewInput model =
             ]
 
 
-viewMessages : Time -> List ChatMessage -> List (Html Msg)
+viewMessages : Time -> Dict MessageId ChatMessage -> List (Html Msg)
 viewMessages now =
-    List.map (viewMessage now)
+    Dict.values
+        >> List.reverse
+        >> List.map (viewMessage now)
 
 
 viewMessage : Time -> ChatMessage -> Html Msg

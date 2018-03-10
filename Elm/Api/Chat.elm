@@ -1,4 +1,4 @@
-module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, logoutRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
+module Api.Chat exposing (Login, User, UserId, MessageId, ReceivedMessage, Data(..), PostData, loginRequest, logoutRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
@@ -25,8 +25,12 @@ type UserId
     = UserId String
 
 
+type alias MessageId =
+    Int
+
+
 type alias ReceivedMessage =
-    { messageNo : Int
+    { messageNo : MessageId
     , time : Date
     , data : Data
     }
@@ -71,8 +75,7 @@ logoutRequest baseUrl (UserId id) =
     let
         logoutBody =
             Enc.object
-                [ ( "userName", Enc.string id )
-                ]
+                [ ( "userId", Enc.string id ) ]
     in
         Http.request
             { method = "POST"
