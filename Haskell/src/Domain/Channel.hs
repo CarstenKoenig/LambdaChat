@@ -3,6 +3,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Domain.Channel
   ( Handle
   , initialize
@@ -16,6 +18,7 @@ import           Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TChan as STM
 import qualified Control.Concurrent.STM.TVar as STM
 import           Control.Monad (forever)
+import           Control.Monad.Catch (MonadCatch, catch, SomeException)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Aeson (encode)
 import           Data.ByteString.Lazy (ByteString)
@@ -83,20 +86,24 @@ whisper handle receiverId senderName text = liftIO $ do
   atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage (Just receiverId) $ encode msg)
 
 
-connectUser :: MonadIO m => Handle -> U.User -> WS.Connection -> m ()
-connectUser (Handle broadcastChan _ _) user connection = liftIO $ do
-  putStrLn $ "user " ++ show (U._userName user) ++ " connected"
+connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> U.User -> WS.Connection -> m ()
+connectUser (Handle broadcastChan _ _) user connection = do
+  liftIO $ putStrLn $ "user " ++ show (U._userName user) ++ " connected"
+  go `catch` closed
+  where
+    go = liftIO $ do
+      chan <- atomically $ STM.dupTChan broadcastChan
+      WS.forkPingThread connection 10
 
-  chan <- atomically $ STM.dupTChan broadcastChan
+      forever $ do
+        ChanMessage receiverId' textData <- atomically $ STM.readTChan chan
+        case receiverId' of
+          Just receiverId
+            | receiverId == (U._userId user) ->
+              WS.sendTextData connection textData
+          _ ->
+            WS.sendTextData connection textData
 
-  WS.forkPingThread connection 10
-
-  forever $ do
-    ChanMessage receiverId' textData <- atomically $ STM.readTChan chan
-    case receiverId' of
-      Just receiverId
-        | receiverId == (U._userId user) ->
-          WS.sendTextData connection textData
-      _ ->
-        WS.sendTextData connection textData
-
+    closed :: SomeException -> m ()
+    closed _ = liftIO $
+      putStrLn $ "user " ++ show (U._userName user) ++ " disconnected"

@@ -17,6 +17,7 @@ dependencies:
   - blaze-html
   - containers
   - data-default
+  - exceptions
   - http-types
   - lens
   - lucid
