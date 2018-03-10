@@ -25,7 +25,8 @@ type UserId
 
 
 type alias ReceivedMessage =
-    { time : Date
+    { messageNo : Int
+    , time : Date
     , data : Data
     }
 
@@ -108,7 +109,8 @@ webSocketSubscription toMsg baseUrl (UserId id) =
                 ]
 
         decoder =
-            Json.map2 ReceivedMessage
+            Json.map3 ReceivedMessage
+                (Json.field "_msgId" Json.int)
                 (Json.field "_msgTime" decodeDate)
                 (Json.field "_msgData" decodeData)
 

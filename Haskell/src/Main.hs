@@ -27,7 +27,8 @@ import           System.Environment (lookupEnv)
 
 main :: IO ()
 main = do
-  handle <- S.initialize
+  -- initialize runtime with cache-size of 10 messages
+  handle <- S.initialize 10
 
   port <- maybe 8081 read <$> lookupEnv "PORT"
 

@@ -13,55 +13,74 @@ module Domain.Channel
 
 import           Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TChan as STM
+import qualified Control.Concurrent.STM.TVar as STM
 import           Control.Monad (forever)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Aeson (encode)
+import           Data.Aeson (ToJSON, encode)
+import           Data.ByteString.Lazy (ByteString)
+import           Data.Time (getCurrentTime)
 import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import qualified Network.WebSockets.Connection as WS
+
 ----------------------------------------------------------------------
 -- global state
 
-newtype Handle = Handle (STM.TChan ChanMessage)
+data Handle = Handle
+  { broadcastChannel :: STM.TChan ChanMessage
+  , messageCacheSize :: Int
+  , recentMessages   :: STM.TVar (Msgs.MessageId, [ByteString])
+  }
 
 
-data ChanMessage
-  = Broadcast U.UserName MD.Markdown
-  | Whisper U.UserId U.UserName MD.Markdown
+data ChanMessage =
+  ChanMessage (Maybe U.UserId) ByteString
 
 
-initialize :: IO Handle
-initialize = do
-  chan <- STM.newBroadcastTChanIO
-  return $ Handle chan
+initialize :: Int -> IO Handle
+initialize cacheSize = do
+  chan   <- STM.newBroadcastTChanIO
+  msgMap <- STM.newTVarIO (0, [])
+  return $ Handle chan cacheSize msgMap
+
+
+newMessage :: (ToJSON a, MonadIO m) => Handle -> (Msgs.MessageId -> a) -> m (a, ByteString)
+newMessage handle createMsg = liftIO $ atomically $ do
+  (nextId, msgs) <- STM.readTVar (recentMessages handle)
+  let msg = createMsg nextId
+      textData = encode msg
+      msgs' = drop (length msgs + 1 - messageCacheSize handle) $ msgs ++ [textData]
+  STM.writeTVar (recentMessages handle) (nextId + 1, msgs')
+  return (msg, textData)
 
 
 broadcast :: MonadIO m => Handle -> U.UserName -> MD.Markdown -> m ()
-broadcast (Handle broadcastChan) senderName text = liftIO $ atomically $
-  STM.writeTChan broadcastChan (Broadcast senderName text)
+broadcast handle senderName text = liftIO $ do
+  time <- getCurrentTime
+  (_, textData) <- newMessage handle $ Msgs.createPost time senderName text False
+  atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing textData)
 
 
 whisper :: MonadIO m => Handle -> U.UserId -> U.UserName -> MD.Markdown -> m ()
-whisper (Handle broadcastChan) receiverId senderName text = liftIO $ atomically $
-  STM.writeTChan broadcastChan (Whisper receiverId senderName text)
+whisper handle receiverId senderName text = liftIO $ do
+  time <- getCurrentTime
+  (_, textData) <- newMessage handle $ Msgs.createPost time senderName text True
+  atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage (Just receiverId) textData)
 
 
 connectUser :: MonadIO m => Handle -> U.UserId -> WS.Connection -> m ()
-connectUser (Handle broadcastChan) uId connection = liftIO $ do
+connectUser (Handle broadcastChan _ _) uId connection = liftIO $ do
   chan <- atomically $ STM.dupTChan broadcastChan
 
   WS.forkPingThread connection 10
 
   forever $ do
-    msg <- atomically $ STM.readTChan chan
-    case msg of
-      Broadcast senderName text -> do
-        post <- Msgs.createPost senderName text False
-        WS.sendTextData connection (encode post)
-      Whisper receiverId senderName text
-        | receiverId == uId -> do
-            post <- Msgs.createPost senderName text True
-            WS.sendTextData connection (encode post)
-        | otherwise -> pure ()
+    ChanMessage receiverId' textData <- atomically $ STM.readTChan chan
+    case receiverId' of
+      Just receiverId
+        | receiverId == uId ->
+          WS.sendTextData connection textData
+      _ ->
+        WS.sendTextData connection textData
 

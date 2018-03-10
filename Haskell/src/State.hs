@@ -27,10 +27,10 @@ data Handle = Handle
   }
 
 
-initialize :: MonadIO m => m Handle
-initialize = liftIO $ do
+initialize :: MonadIO m => Int -> m Handle
+initialize cacheSize = liftIO $ do
   regUsers <- Us.initialize
-  chan <- Ch.initialize
+  chan <- Ch.initialize cacheSize
   return $ Handle regUsers chan
 
 
