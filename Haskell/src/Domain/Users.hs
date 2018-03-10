@@ -10,11 +10,12 @@ module Domain.Users
   , getUser
   , getUserId
   , loginUser
+  , logoutUser
   ) where
 
 import           Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TVar as STM
-import Control.Lens (view, set, at, (^.), makeLenses)
+import           Control.Lens (view, set, at, _Just, (^.), (.~), makeLenses)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
@@ -64,14 +65,20 @@ loginUser handle name password = do
   case alreadyRegistered of
     Nothing -> do
       newId <- liftIO U.newUserId
-      let user = U.User newId name password
+      let user = U.User newId name password True
       modifyRegisteredUsers handle (set (userFromId . at newId) (Just user) . set (userIdFromName . at name) (Just newId))
       return $ Just newId
     Just found
-      | found^.U.userPassword == password ->
+      | found^.U.userPassword == password -> do
+          modifyRegisteredUsers handle (userFromId . at (found^.U.userId) . _Just . U.userIsOnline .~ True)
           return $ Just $ found^.U.userId
       | otherwise ->
           return Nothing
+
+
+logoutUser :: MonadIO m => Handle -> U.UserId -> m ()
+logoutUser handle uId = do
+  modifyRegisteredUsers handle (userFromId . at uId . _Just . U.userIsOnline .~ False)
 
 
 readRegisteredUsers :: MonadIO m => Handle -> (Users -> a) -> m a

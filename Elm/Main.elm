@@ -82,6 +82,7 @@ type Msg
     | SubmitLoginResponse (Result Http.Error UserId)
     | UserInfoResponse (Result Http.Error User)
     | Logout
+    | SubmitLogoutResponse (Result Http.Error ())
     | InputLoginName String
     | InputLoginPassword String
     | InputMessage String
@@ -157,7 +158,22 @@ update msg model =
                     model ! []
 
         Logout ->
-            { model | login = Login { name = "", password = "" } } ! []
+            let
+                cmd =
+                    case model.login of
+                        Login _ ->
+                            Cmd.none
+
+                        LoggedIn user ->
+                            Http.send SubmitLogoutResponse (Api.Chat.logoutRequest model.flags.baseUri user.id)
+            in
+                { model | login = Login { name = "", password = "" } } ! [ cmd ]
+
+        SubmitLogoutResponse (Ok ()) ->
+            model ! []
+
+        SubmitLogoutResponse (Err err) ->
+            { model | error = Just (toString err) } ! []
 
         SubmitLogin ->
             let
@@ -181,7 +197,11 @@ update msg model =
         SubmitLoginResponse (Err err) ->
             case model.login of
                 Login loginModel ->
-                    { model | login = Login { loginModel | password = "" } } ! []
+                    { model
+                        | login = Login { loginModel | password = "" }
+                        , error = Just (toString err)
+                    }
+                        ! []
 
                 LoggedIn _ ->
                     model ! []

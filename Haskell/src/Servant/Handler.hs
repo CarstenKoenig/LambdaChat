@@ -10,6 +10,7 @@ module Servant.Handler
   , getUser
   , getUserId
   , loginUser
+  , logoutUser
   , broadcastMessage
   , whisperMessage
   ) where
@@ -55,6 +56,12 @@ loginUser name password = do
       return newId
     Nothing ->
         throwError $ err401 { errBody = "there is already a user with this name logged in and you don't know his password" }
+
+
+logoutUser :: U.UserId -> ChatHandler NoContent
+logoutUser uid = do
+  S.useUsers (\uh -> Us.logoutUser uh uid)
+  return NoContent
 
 
 broadcastMessage :: U.UserName -> MD.Markdown -> ChatHandler ()

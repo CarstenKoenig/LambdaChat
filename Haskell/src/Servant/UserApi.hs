@@ -21,6 +21,7 @@ type API =
   (Get '[JSON] [U.PublicInfo]
    :<|> Capture "userid" U.UserId :> Get '[JSON] U.PublicInfo
    :<|> "login" :> ReqBody '[JSON] L.Login :> Post '[JSON] U.UserId
+   :<|> "logout" :> ReqBody '[JSON] L.Logout :> PostNoContent '[JSON] NoContent
   )
 
 
@@ -29,11 +30,12 @@ type API =
 
 handler :: S.Handle -> ServerT API Handler
 handler handle =
-  enter (toServantHandler handle) $ allUsers :<|> getUserHandler :<|> loginHandler
+  enter (toServantHandler handle) $ allUsers :<|> getUserHandler :<|> loginHandler :<|> logoutHandler
 
   where
     allUsers =
       listAllUsers
+
     getUserHandler uId = do
       res <- getUser uId
       case res of
@@ -42,3 +44,6 @@ handler handle =
 
     loginHandler reg =
       loginUser (L.loginName reg) (L.loginPassword reg)
+
+    logoutHandler lout =
+      logoutUser (L.userId lout)

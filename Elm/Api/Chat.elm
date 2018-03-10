@@ -1,4 +1,4 @@
-module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
+module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, logoutRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
@@ -17,6 +17,7 @@ type alias Login r =
 type alias User =
     { id : UserId
     , name : String
+    , isOnline : Bool
     }
 
 
@@ -46,7 +47,9 @@ userInfoRequest : String -> UserId -> Http.Request User
 userInfoRequest baseUrl (UserId id) =
     let
         userDecoder =
-            Json.map (User <| UserId id) (Json.field "username" Json.string)
+            Json.map2 (User (UserId id))
+                (Json.field "username" Json.string)
+                (Json.field "isonline" Json.bool)
     in
         Http.get (baseUrl ++ "/users/" ++ id) userDecoder
 
@@ -61,6 +64,25 @@ loginRequest baseUrl login =
                 ]
     in
         Http.post (baseUrl ++ "/users/login") (Http.jsonBody <| loginBody) (Json.string |> Json.map UserId)
+
+
+logoutRequest : String -> UserId -> Http.Request ()
+logoutRequest baseUrl (UserId id) =
+    let
+        logoutBody =
+            Enc.object
+                [ ( "userName", Enc.string id )
+                ]
+    in
+        Http.request
+            { method = "POST"
+            , headers = []
+            , url = baseUrl ++ "/users/logout"
+            , body = Http.jsonBody logoutBody
+            , expect = Http.expectStringResponse (always <| Ok ())
+            , timeout = Nothing
+            , withCredentials = False
+            }
 
 
 getMessages : String -> UserId -> Maybe Int -> Http.Request (List ReceivedMessage)

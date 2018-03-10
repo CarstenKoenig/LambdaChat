@@ -30,3 +30,17 @@ instance Sw.ToSchema Login where
     & mapped.Sw.schema.Sw.example ?~ toJSON (Login "Max" "1234")
 
 
+data Logout = Logout
+  { userId :: U.UserId
+  } deriving (Eq, Show, Generic)
+
+
+instance FromJSON Logout
+instance ToJSON Logout
+
+
+instance Sw.ToSchema Logout where
+  declareNamedSchema proxy = Sw.genericDeclareNamedSchema Sw.defaultSchemaOptions proxy
+    & mapped.Sw.schema.Sw.description ?~ "A logout request for a user"
+    & mapped.Sw.schema.Sw.example ?~ toJSON (Logout U.exampleId)
+
