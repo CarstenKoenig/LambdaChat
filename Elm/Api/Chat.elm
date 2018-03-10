@@ -1,4 +1,4 @@
-module Api.Chat exposing (Login, User, UserId, ReceivedMessage, loginRequest, userInfoRequest, postMessage, webSocketSubscription)
+module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, userInfoRequest, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
@@ -25,11 +25,20 @@ type UserId
 
 
 type alias ReceivedMessage =
+    { time : Date
+    , data : Data
+    }
+
+
+type alias PostData =
     { sender : String
-    , time : Date
     , isPrivate : Bool
     , htmlBody : String
     }
+
+
+type Data
+    = Post PostData
 
 
 userInfoRequest : String -> UserId -> Http.Request User
@@ -88,12 +97,20 @@ webSocketSubscription toMsg baseUrl (UserId id) =
                                 Json.fail err
                     )
 
+        decodeData =
+            Json.oneOf
+                [ Json.map3
+                    PostData
+                    (Json.field "_msgSender" Json.string)
+                    (Json.field "_msgPrivate" Json.bool)
+                    (Json.field "_msgHtmlBody" Json.string)
+                    |> Json.map Post
+                ]
+
         decoder =
-            Json.map4 ReceivedMessage
-                (Json.field "_msgSender" Json.string)
+            Json.map2 ReceivedMessage
                 (Json.field "_msgTime" decodeDate)
-                (Json.field "_msgPrivate" Json.bool)
-                (Json.field "_msgHtmlBody" Json.string)
+                (Json.field "_msgData" decodeData)
 
         decode =
             Json.decodeString decoder >> toMsg

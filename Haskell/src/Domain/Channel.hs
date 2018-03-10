@@ -16,7 +16,6 @@ import qualified Control.Concurrent.STM.TChan as STM
 import           Control.Monad (forever)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Aeson (encode)
-import           Data.Time (getCurrentTime)
 import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
@@ -56,12 +55,13 @@ connectUser (Handle broadcastChan) uId connection = liftIO $ do
 
   forever $ do
     msg <- atomically $ STM.readTChan chan
-    time <- getCurrentTime
     case msg of
-      Broadcast senderName text ->
-        WS.sendTextData connection (encode $ Msgs.Message senderName text time False $ MD.renderHtml text)
+      Broadcast senderName text -> do
+        post <- Msgs.createPost senderName text False
+        WS.sendTextData connection (encode post)
       Whisper receiverId senderName text
-        | receiverId == uId ->
-          WS.sendTextData connection (encode $ Msgs.Message senderName text time True $ MD.renderHtml text)
+        | receiverId == uId -> do
+            post <- Msgs.createPost senderName text True
+            WS.sendTextData connection (encode post)
         | otherwise -> pure ()
 

@@ -211,7 +211,9 @@ update msg model =
         MessageReceived (Ok msg) ->
             let
                 newMsgs =
-                    ChatMessage msg.sender msg.htmlBody msg.time (Just msg.sender == currentUserName model) msg.isPrivate :: model.messages
+                    case msg.data of
+                        Api.Chat.Post post ->
+                            ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate :: model.messages
             in
                 { model | messages = newMsgs }
                     ! []

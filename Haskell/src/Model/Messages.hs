@@ -6,29 +6,47 @@
 module Model.Messages where
 
 import Control.Lens (mapped, (&), (?~), makeLenses)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (ToJSON, FromJSON, toJSON)
 import Data.Maybe (fromJust)
 import qualified Data.Swagger as Sw
 import Data.Text (Text)
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import GHC.Generics (Generic)
 import qualified Model.Markdown as MD
 import qualified Model.User as U
+
 ----------------------------------------------------------------------
 -- Messages
 
-data Message = Message
-  { _msgSender   :: U.UserName
-  , _msgText     :: MD.Markdown
-  , _msgTime     :: UTCTime
-  , _msgPrivate  :: Bool
-  , _msgHtmlBody :: Text
+data Message a = Message
+  { _msgTime     :: UTCTime
+  , _msgData     :: a
   } deriving (Eq, Show, Generic)
 
-instance ToJSON Message
+instance ToJSON a => ToJSON (Message a)
 
 makeLenses ''Message
+
+
+data Post = Post
+  { _msgSender   :: U.UserName
+  , _msgText     :: MD.Markdown
+  , _msgHtmlBody :: Text
+  , _msgPrivate  :: Bool
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON Post
+
+makeLenses ''Post
+
+
+createPost :: MonadIO m => U.UserName -> MD.Markdown -> Bool -> m (Message Post)
+createPost userN mdText isPrivate = liftIO $ do
+  now <- getCurrentTime
+  let htmlBod = MD.renderHtml mdText
+  return $ Message now (Post userN mdText htmlBod isPrivate)
 
 
 data SendMessage = SendMessage
