@@ -8,10 +8,10 @@ module Servant.MessageApi
   , handler
   ) where
 
-import           Control.Lens ((^.)) 
+import           Control.Lens ((^.))
 import           Control.Monad.Except (throwError)
-import qualified Control.Monad.Reader as R
 import qualified Domain.Channel as Ch
+import qualified Domain.Users as Users
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import           Network.WebSockets.Connection (Connection)
@@ -26,7 +26,8 @@ type API =
   "messages" :>
   (ReqBody '[JSON] Msgs.SendMessage :> PostNoContent '[JSON] NoContent
    :<|> "whisper" :> ReqBody '[JSON] Msgs.WhisperMessage :> PostNoContent '[JSON] NoContent
-   :<|> Capture "userid" U.UserId :> WebSocket
+   :<|> Capture "userid" U.UserId :> QueryParam "fromid" Msgs.MessageId :> Get '[JSON] [Msgs.Message]
+   :<|> Capture "userid" U.UserId :> "stream" :> WebSocket
   )
 
 ----------------------------------------------------------------------
@@ -34,8 +35,11 @@ type API =
 
 
 handler :: S.Handle -> ServerT API Handler
-handler handle =
-  enter (toServantHandler handle) $ messageReceivedHandler :<|> whisperReceiveHandler :<|> messageWebsocketHandler
+handler handle = enter (toServantHandler handle) $
+  messageReceivedHandler
+  :<|> whisperReceiveHandler
+  :<|> getMessagesHandler
+  :<|> messageWebsocketHandler
 
 
 messageReceivedHandler :: Msgs.SendMessage -> ChatHandler NoContent
@@ -47,6 +51,12 @@ messageReceivedHandler sendMsg = do
       return NoContent
     Nothing ->
       throwError $ err404 { errBody = "user not found" }
+
+
+getMessagesHandler :: U.UserId -> Maybe Msgs.MessageId -> ChatHandler [Msgs.Message]
+getMessagesHandler userId fromNo =
+  let msgFilter = map snd . maybe id (\no -> filter (\(n,_) -> n >= no)) fromNo
+  in msgFilter <$> S.useChannel (Ch.getCachedMessages userId)
 
 
 whisperReceiveHandler :: Msgs.WhisperMessage -> ChatHandler NoContent
@@ -61,6 +71,11 @@ whisperReceiveHandler sendMsg = do
       throwError $ err404 { errBody = "unknown sender or receiver" }
 
 
-messageWebsocketHandler :: U.UserId -> Connection -> R.ReaderT S.Handle Handler ()
-messageWebsocketHandler uId connection =
-  S.useChannel (\ch -> Ch.connectUser ch uId connection)
+messageWebsocketHandler :: U.UserId -> Connection -> ChatHandler ()
+messageWebsocketHandler uId connection = do
+  userOpt <- S.useUsers (\uh -> Users.getUser uh uId)
+  case userOpt of
+    Just user ->
+      S.useChannel (\ch -> Ch.connectUser ch user connection)
+    Nothing -> do
+      throwError $ err404 { errBody = "unknown user" }

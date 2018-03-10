@@ -87,7 +87,7 @@ type Msg
     | InputMessage String
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
-    | MessageReceived (Result String Api.Chat.ReceivedMessage)
+    | MessagesReceived (Result String (List Api.Chat.ReceivedMessage))
     | DismissError
     | KeyDown Kbd.KeyCode
     | KeyUp Kbd.KeyCode
@@ -125,7 +125,7 @@ subscriptions model =
                 let
                     wsSub =
                         user.id
-                            |> Api.Chat.webSocketSubscription MessageReceived model.flags.wsUri
+                            |> Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
                 in
                     Sub.batch [ wsSub, kbdSub, clockSub ]
 
@@ -187,7 +187,10 @@ update msg model =
                     model ! []
 
         UserInfoResponse (Ok user) ->
-            { model | login = LoggedIn user } ! []
+            { model | login = LoggedIn user }
+                ! [ Api.Chat.getMessages model.flags.baseUri user.id Nothing
+                        |> Http.send (Result.mapError toString >> MessagesReceived)
+                  ]
 
         UserInfoResponse (Err err) ->
             { model | error = Just (toString err) }
@@ -208,17 +211,20 @@ update msg model =
             { model | error = Just (toString err) }
                 ! []
 
-        MessageReceived (Ok msg) ->
+        MessagesReceived (Ok msgs) ->
             let
-                newMsgs =
+                mapMsg msg =
                     case msg.data of
                         Api.Chat.Post post ->
-                            ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate :: model.messages
+                            ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate
+
+                newMsgs =
+                    List.map mapMsg msgs ++ model.messages
             in
                 { model | messages = newMsgs }
                     ! []
 
-        MessageReceived (Err err) ->
+        MessagesReceived (Err err) ->
             { model | error = Just err }
                 ! []
 

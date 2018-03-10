@@ -1,4 +1,4 @@
-module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, userInfoRequest, postMessage, webSocketSubscription)
+module Api.Chat exposing (Login, User, UserId, ReceivedMessage, Data(..), PostData, loginRequest, userInfoRequest, getMessages, postMessage, webSocketSubscription)
 
 import Http
 import Json.Decode as Json
@@ -63,6 +63,16 @@ loginRequest baseUrl login =
         Http.post (baseUrl ++ "/users/login") (Http.jsonBody <| loginBody) (Json.string |> Json.map UserId)
 
 
+getMessages : String -> UserId -> Maybe Int -> Http.Request (List ReceivedMessage)
+getMessages baseUrl (UserId id) fromMsgNo =
+    let
+        query =
+            Maybe.map (\no -> "?fromid=" ++ toString no) fromMsgNo
+                |> Maybe.withDefault ""
+    in
+        Http.get (baseUrl ++ "/messages/" ++ id ++ query) (Json.list messageDecoder)
+
+
 postMessage : String -> UserId -> String -> Http.Request ()
 postMessage baseUrl (UserId id) message =
     let
@@ -86,6 +96,15 @@ postMessage baseUrl (UserId id) message =
 webSocketSubscription : (Result String ReceivedMessage -> msg) -> String -> UserId -> Sub msg
 webSocketSubscription toMsg baseUrl (UserId id) =
     let
+        decode =
+            Json.decodeString messageDecoder >> toMsg
+    in
+        Ws.listen (baseUrl ++ "/messages/" ++ id ++ "/stream") decode
+
+
+messageDecoder : Json.Decoder ReceivedMessage
+messageDecoder =
+    let
         decodeDate =
             Json.string
                 |> Json.andThen
@@ -107,14 +126,8 @@ webSocketSubscription toMsg baseUrl (UserId id) =
                     (Json.field "_msgHtmlBody" Json.string)
                     |> Json.map Post
                 ]
-
-        decoder =
-            Json.map3 ReceivedMessage
-                (Json.field "_msgId" Json.int)
-                (Json.field "_msgTime" decodeDate)
-                (Json.field "_msgData" decodeData)
-
-        decode =
-            Json.decodeString decoder >> toMsg
     in
-        Ws.listen (baseUrl ++ "/messages/" ++ id) decode
+        Json.map3 ReceivedMessage
+            (Json.field "_msgId" Json.int)
+            (Json.field "_msgTime" decodeDate)
+            (Json.field "_msgData" decodeData)
