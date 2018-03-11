@@ -50,7 +50,7 @@ messageReceivedHandler sendMsg = do
   foundUser <- getUser (sendMsg^.Msgs.sendSender)
   case foundUser of
     Just user -> do
-      broadcastMessage (user^.U.userName) (sendMsg^.Msgs.sendText)
+      broadcastMessage user (sendMsg^.Msgs.sendText)
       return NoContent
     Nothing ->
       throwError $ err404 { errBody = "user not found" }
@@ -74,7 +74,7 @@ whisperReceiveHandler sendMsg = do
   foundReceiverId <- getUserId (sendMsg^.Msgs.whispReceiver)
   case (foundSender, foundReceiverId) of
     (Just sender, Just receiverId) -> do
-      whisperMessage receiverId (sender^.U.userName) (sendMsg^.Msgs.whispText)
+      whisperMessage receiverId sender (sendMsg^.Msgs.whispText)
       return NoContent
     _ ->
       throwError $ err404 { errBody = "unknown sender or receiver" }

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -20,15 +21,20 @@ import qualified Control.Concurrent.STM.TChan as STM
 import qualified Control.Concurrent.STM.TVar as STM
 import           Control.Monad (forever)
 import           Control.Monad.Catch (MonadCatch, catch, SomeException)
+import           Control.Monad.Except (MonadError, throwError)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Aeson (encode)
 import           Data.ByteString.Lazy (ByteString)
+import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 import           Data.Maybe (mapMaybe)
-import           Data.Time (getCurrentTime)
+import           Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import qualified Network.WebSockets.Connection as WS
+import           Servant (ServantErr, errBody)
+import           Servant.Server (err406)
 import           System.IO.Unsafe (unsafePerformIO)
 import           Text.Read (Read(..))
 
@@ -39,16 +45,22 @@ data Handle = Handle
   { broadcastChannel :: STM.TChan ChanMessage
   , messageCacheSize :: Int
   , recentMessages   :: STM.TVar (Msgs.MessageId, [(Msgs.MessageId, Maybe U.UserId, Msgs.Message)])
+  , lastPosted       :: STM.TVar (Map.Map U.UserId UTCTime)
   }
 
 
 instance Read Handle where
   readPrec = intoHandle <$> readPrec
-    where intoHandle (cSz, msgs) = Handle (unsafePerformIO $ STM.newTChanIO) cSz (unsafePerformIO $ STM.newTVarIO msgs)
+    where
+      intoHandle (cSz, msgs, posted) = Handle
+        (unsafePerformIO $ STM.newTChanIO)
+        cSz
+        (unsafePerformIO $ STM.newTVarIO msgs)
+        (unsafePerformIO $ STM.newTVarIO posted)
 
 instance Show Handle where
-  show (Handle _ cSz msgs) =
-    show (cSz, unsafePerformIO $ STM.readTVarIO msgs)
+  show (Handle _ cSz msgs posted) =
+    show (cSz, unsafePerformIO $ STM.readTVarIO msgs, unsafePerformIO $ STM.readTVarIO posted)
 
 
 data ChanMessage =
@@ -57,9 +69,10 @@ data ChanMessage =
 
 initialize :: Int -> IO Handle
 initialize cacheSize = do
-  chan   <- STM.newBroadcastTChanIO
-  msgMap <- STM.newTVarIO (0, [])
-  return $ Handle chan cacheSize msgMap
+  chan      <- STM.newBroadcastTChanIO
+  msgMap    <- STM.newTVarIO (0, [])
+  postedMap <- STM.newTVarIO Map.empty
+  return $ Handle chan cacheSize msgMap postedMap
 
 
 newMessage :: MonadIO m => Handle -> Maybe U.UserId -> (Msgs.MessageId -> Msgs.Message) -> m Msgs.Message
@@ -84,20 +97,22 @@ getCachedMessages uid handle = liftIO $ atomically $
       else Nothing
 
 
-broadcast :: MonadIO m => Handle -> U.UserName -> MD.Markdown -> m ()
-broadcast handle senderName text = liftIO $ do
-  time <- getCurrentTime
-  msg <- newMessage handle Nothing $ Msgs.createPost time senderName text False
-  putStrLn $ "sending message to all users: " ++ show msg
-  atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing $ encode msg)
+broadcast :: (MonadError ServantErr m, MonadIO m) => Handle -> U.User -> MD.Markdown -> m ()
+broadcast handle sender text = do
+  time <- liftIO $ getCurrentTime
+  assertNoPostSpam handle (U._userId sender) time
+  msg <- newMessage handle Nothing $ Msgs.createPost time (U._userName sender) text False
+  liftIO $ putStrLn $ "sending message to all users: " ++ show msg
+  liftIO $ atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing $ encode msg)
 
 
-whisper :: MonadIO m => Handle -> U.UserId -> U.UserName -> MD.Markdown -> m ()
-whisper handle receiverId senderName text = liftIO $ do
-  time <- getCurrentTime
-  msg <- newMessage handle (Just receiverId) $ Msgs.createPost time senderName text True
-  putStrLn $ "sending message to " ++ show receiverId ++ ": " ++ show msg
-  atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage (Just receiverId) $ encode msg)
+whisper :: (MonadError ServantErr m, MonadIO m) => Handle -> U.UserId -> U.User -> MD.Markdown -> m ()
+whisper handle receiverId sender text = do
+  time <- liftIO $ getCurrentTime
+  assertNoPostSpam handle (U._userId sender) time
+  msg <- newMessage handle (Just receiverId) $ Msgs.createPost time (U._userName sender) text True
+  liftIO $ putStrLn $ "sending message to " ++ show receiverId ++ ": " ++ show msg
+  liftIO $ atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage (Just receiverId) $ encode msg)
 
 
 systemMessage :: MonadIO m => Handle -> MD.Markdown -> m ()
@@ -107,8 +122,17 @@ systemMessage handle text = liftIO $ do
   atomically $ STM.writeTChan (broadcastChannel handle) (ChanMessage Nothing $ encode msg)
 
 
+assertNoPostSpam :: (MonadError ServantErr m, MonadIO m) => Handle -> U.UserId -> UTCTime -> m ()
+assertNoPostSpam handle userId time = do
+  secsSinceLastPost <- fromMaybe 100 . fmap (time `diffUTCTime`) . Map.lookup userId <$> liftIO (STM.readTVarIO $ lastPosted handle)
+  if secsSinceLastPost <= 1
+    then throwError (err406 { errBody =  "users are only allowed to post at least one second apart"})
+    else liftIO $ atomically $
+      STM.modifyTVar (lastPosted handle) (Map.insert userId time)
+
+
 connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> Maybe (U.User) -> WS.Connection -> m ()
-connectUser (Handle broadcastChan _ _) user connection = do
+connectUser (Handle broadcastChan _ _ _) user connection = do
   liftIO $ putStrLn $ "user " ++ show (maybe "<annonymous>" U._userName user) ++ " connected"
   go `catch` closed
   where
