@@ -26,7 +26,7 @@ data User = User
   , _userName     :: UserName
   , _userPassword :: Text
   , _userIsOnline     :: Bool
-  } deriving (Eq, Show, Generic)
+  } deriving (Eq, Show, Read, Generic)
 
 makeLenses ''User
 

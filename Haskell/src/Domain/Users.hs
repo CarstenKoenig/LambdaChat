@@ -20,6 +20,8 @@ import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
 import qualified Model.User as U
+import           System.IO.Unsafe (unsafePerformIO)
+import           Text.Read (Read(..))
 
 ----------------------------------------------------------------------
 -- global state
@@ -27,11 +29,18 @@ import qualified Model.User as U
 data Users = Users
   { _userFromId     :: Map.Map U.UserId U.User
   , _userIdFromName :: Map.Map U.UserName U.UserId
-  }
+  } deriving (Read, Show)
 
 makeLenses ''Users
 
 newtype Handle = Handle (STM.TVar Users)
+
+instance Read Handle where
+  readPrec = intoHandle <$> readPrec
+    where intoHandle usrs = Handle $ unsafePerformIO (STM.newTVarIO usrs)
+
+instance Show Handle where
+  show (Handle uvar) = show (unsafePerformIO $ STM.readTVarIO uvar)
 
 
 initialize :: MonadIO m => m Handle

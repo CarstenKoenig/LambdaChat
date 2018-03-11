@@ -31,7 +31,7 @@ data MessageData
   | System
     { _sysBody     :: Text
     }
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Show, Read, Generic)
 
 instance ToJSON MessageData
 
@@ -42,7 +42,7 @@ data Message = Message
   { _msgId       :: MessageId
   , _msgTime     :: UTCTime
   , _msgData     :: MessageData
-  } deriving (Eq, Show, Generic)
+  } deriving (Eq, Show, Read, Generic)
 
 instance ToJSON Message
 

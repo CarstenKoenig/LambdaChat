@@ -30,3 +30,6 @@ elm-stuff/
 chat.js
 
 ## purescript
+
+## no app state
+state.data

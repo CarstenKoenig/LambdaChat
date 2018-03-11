@@ -29,6 +29,8 @@ import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
 import qualified Network.WebSockets.Connection as WS
+import           System.IO.Unsafe (unsafePerformIO)
+import           Text.Read (Read(..))
 
 ----------------------------------------------------------------------
 -- global state
@@ -38,6 +40,15 @@ data Handle = Handle
   , messageCacheSize :: Int
   , recentMessages   :: STM.TVar (Msgs.MessageId, [(Msgs.MessageId, Maybe U.UserId, Msgs.Message)])
   }
+
+
+instance Read Handle where
+  readPrec = intoHandle <$> readPrec
+    where intoHandle (cSz, msgs) = Handle (unsafePerformIO $ STM.newTChanIO) cSz (unsafePerformIO $ STM.newTVarIO msgs)
+
+instance Show Handle where
+  show (Handle _ cSz msgs) =
+    show (cSz, unsafePerformIO $ STM.readTVarIO msgs)
 
 
 data ChanMessage =
