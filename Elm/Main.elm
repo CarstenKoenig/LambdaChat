@@ -10,6 +10,7 @@ import Keyboard as Kbd
 import Markdown as MD
 import Time exposing (Time)
 import Dict exposing (Dict)
+import Ports.Notifications as N
 
 
 ctrlKeyCode : Kbd.KeyCode
@@ -77,6 +78,7 @@ type Message
 type alias ChatMessage =
     { sender : String
     , htmlBody : String
+    , textBody : String
     , time : Date
     , ownMessage : Bool
     , isPrivate : Bool
@@ -100,7 +102,7 @@ type Msg
     | InputMessage String
     | SendMessage
     | SendMessageResponse (Result Http.Error ())
-    | MessagesReceived (Result String (List Api.Chat.ReceivedMessage))
+    | MessagesReceived Currentness (Result String (List Api.Chat.ReceivedMessage))
     | DismissError
     | KeyDown Kbd.KeyCode
     | KeyUp Kbd.KeyCode
@@ -109,12 +111,17 @@ type Msg
     | UpdateTime Time
 
 
+type Currentness
+    = Live
+    | Cached
+
+
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     let
         cmd =
             Api.Chat.getMessages flags.baseUri Nothing Nothing
-                |> Http.send (Result.mapError toString >> MessagesReceived)
+                |> Http.send (Result.mapError toString >> MessagesReceived Cached)
     in
         { flags = flags
         , error = Nothing
@@ -139,7 +146,7 @@ subscriptions model =
             Time.every Time.second UpdateTime
 
         wsSub =
-            Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
+            Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived Live) model.flags.wsUri
     in
         case model.login of
             LoggedIn user ->
@@ -229,10 +236,13 @@ update msg model =
             let
                 cmd =
                     Api.Chat.getMessages model.flags.baseUri (Just user.id) Nothing
-                        |> Http.send (Result.mapError toString >> MessagesReceived)
+                        |> Http.send (Result.mapError toString >> MessagesReceived Cached)
+
+                cmdNotify =
+                    N.showNotification (N.Notification ("Hi " ++ user.name) "")
             in
                 { model | login = LoggedIn user }
-                    ! [ cmd ]
+                    ! [ cmd, cmdNotify ]
 
         UserInfoResponse (Err err) ->
             { model | error = Just (toString err) }
@@ -253,23 +263,44 @@ update msg model =
             { model | error = Just (toString err) }
                 ! []
 
-        MessagesReceived (Ok msgs) ->
+        MessagesReceived currentness (Ok msgs) ->
             let
                 mapMsg msg =
                     case msg.data of
                         Api.Chat.Post post ->
-                            ( msg.messageNo, Chat <| ChatMessage post.sender post.htmlBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
+                            ( msg.messageNo, Chat <| ChatMessage post.sender post.htmlBody post.textBody msg.time (Just post.sender == currentUserName model) post.isPrivate )
 
                         Api.Chat.System log ->
                             ( msg.messageNo, System <| SystemMessage log.htmlBody msg.time )
 
+                mapNotify msg =
+                    case msg.data of
+                        Api.Chat.Post post ->
+                            if Just post.sender /= currentUserName model then
+                                Just (N.Notification ("Message from " ++ post.sender) post.textBody)
+                            else
+                                Nothing
+
+                        Api.Chat.System log ->
+                            Nothing
+
                 newMsgs =
                     Dict.union (Dict.fromList <| List.map mapMsg msgs) model.messages
+
+                cmdNotifications =
+                    case currentness of
+                        Live ->
+                            List.filterMap mapNotify msgs
+                                |> List.map N.showNotification
+                                |> Cmd.batch
+
+                        Cached ->
+                            Cmd.none
             in
                 { model | messages = newMsgs }
-                    ! []
+                    ! [ cmdNotifications ]
 
-        MessagesReceived (Err err) ->
+        MessagesReceived _ (Err err) ->
             { model | error = Just err }
                 ! []
 

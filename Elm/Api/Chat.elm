@@ -40,6 +40,7 @@ type alias PostData =
     { sender : String
     , isPrivate : Bool
     , htmlBody : String
+    , textBody : String
     }
 
 
@@ -167,11 +168,12 @@ messageDecoder =
                     SystemData
                     (Json.field "_sysBody" Json.string)
                     |> Json.map System
-                , Json.map3
+                , Json.map4
                     PostData
                     (Json.field "_msgSender" Json.string)
                     (Json.field "_msgPrivate" Json.bool)
                     (Json.field "_msgHtmlBody" Json.string)
+                    (Json.field "_msgText" Json.string)
                     |> Json.map Post
                 ]
     in
