@@ -23,7 +23,7 @@ import qualified Servant.UserApi as Uapi
 import qualified State as S
 import           System.Environment (lookupEnv)
 import           System.Exit (ExitCode(ExitSuccess))
-import           System.Posix.Signals (installHandler, sigTERM, sigINT, Handler(Catch))
+import           System.Posix.Signals (installHandler, sigTERM, sigINT, Handler(CatchOnce))
 
 ----------------------------------------------------------------------
 -- entry point
@@ -36,8 +36,8 @@ main = do
   port <- maybe 8081 read <$> lookupEnv "PORT"
 
   tid <- myThreadId
-  _   <- installHandler sigTERM (Catch $ saveAndExit handle tid) Nothing
-  _   <- installHandler sigINT (Catch $ saveAndExit handle tid) Nothing
+  _   <- installHandler sigTERM (CatchOnce $ saveAndExit handle tid) Nothing
+  _   <- installHandler sigINT (CatchOnce $ saveAndExit handle tid) Nothing
 
   putStrLn $ "serving app on http://localhost:" ++ show port
   Warp.run port $ Cors.cors (const $ Just policy) $ servantApp handle
