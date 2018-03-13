@@ -13,11 +13,12 @@ extra-source-files:
 dependencies:
   - base >= 4.7 && < 5
   - aeson
-  - bytestring
   - blaze-html
+  - bytestring
   - containers
   - data-default
   - exceptions
+  - http-api-data
   - http-types
   - lens
   - lucid
@@ -39,7 +40,6 @@ dependencies:
   - wai-cors
   - warp
   - websockets
-
 ghc-options:
   - -Wall
 
