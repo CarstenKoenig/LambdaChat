@@ -15,11 +15,12 @@ module State
   ) where
 
 
-import qualified Domain.Channel as Ch
+import           Control.Exception (catch, SomeException)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Reader as Rdr
+import qualified Domain.Channel as Ch
 import qualified Domain.Users as Us
-import           Control.Exception (catch, SomeException)
+import           Text.Read (readMaybe)
 
 ----------------------------------------------------------------------
 -- global state
@@ -43,7 +44,7 @@ saveState h fp = writeFile fp (show h)
 
 loadState :: FilePath -> IO (Maybe Handle)
 loadState fp =
-  (Just . read <$> readFile fp) `catch` (\(_ :: SomeException) -> return Nothing)
+  (readMaybe <$> readFile fp) `catch` (\(_ :: SomeException) -> return Nothing)
 
 
 useChannel :: Rdr.MonadReader Handle m => (Ch.Handle -> m a) -> m a
