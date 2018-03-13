@@ -28,7 +28,7 @@ import qualified Text.Blaze.Html.Renderer.Text as TBH
 import Text.Markdown (MarkdownSettings(..), markdown)
 
 newtype Markdown = Markdown Text
-  deriving (Eq, Show, Generic, ToJSON, FromJSON, IsString)
+  deriving (Eq, Show, Read, Generic, ToJSON, FromJSON, IsString)
 
 
 fromText :: Text -> Markdown

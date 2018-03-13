@@ -68,14 +68,14 @@ logoutUser uid = do
   return NoContent
 
 
-broadcastMessage :: U.UserName -> MD.Markdown -> ChatHandler ()
-broadcastMessage senderName text =
-  S.useChannel (\ch -> Ch.broadcast ch senderName text)
+broadcastMessage :: U.User -> MD.Markdown -> ChatHandler ()
+broadcastMessage sender text =
+  S.useChannel (\ch -> Ch.broadcast ch sender text)
 
 
-whisperMessage :: U.UserId -> U.UserName -> MD.Markdown -> ChatHandler ()
-whisperMessage receiverId senderName text =
-  S.useChannel (\ch -> Ch.whisper ch receiverId senderName text)
+whisperMessage :: U.UserId -> U.User -> MD.Markdown -> ChatHandler ()
+whisperMessage receiverId sender text =
+  S.useChannel (\ch -> Ch.whisper ch receiverId sender text)
 
 
 systemMessage :: MD.Markdown -> ChatHandler ()

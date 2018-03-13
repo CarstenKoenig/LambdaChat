@@ -111,17 +111,22 @@ type Msg
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    { flags = flags
-    , error = Nothing
-    , login = Login { name = "", password = "" }
-    , messageInputFocused = False
-    , messageInputMouseOver = False
-    , messageInput = ""
-    , messages = Dict.empty
-    , ctrlKeyPressed = False
-    , currentTime = 0
-    }
-        ! []
+    let
+        cmd =
+            Api.Chat.getMessages flags.baseUri Nothing Nothing
+                |> Http.send (Result.mapError toString >> MessagesReceived)
+    in
+        { flags = flags
+        , error = Nothing
+        , login = Login { name = "", password = "" }
+        , messageInputFocused = False
+        , messageInputMouseOver = False
+        , messageInput = ""
+        , messages = Dict.empty
+        , ctrlKeyPressed = False
+        , currentTime = 0
+        }
+            ! [ cmd ]
 
 
 subscriptions : Model -> Sub Msg
@@ -132,18 +137,16 @@ subscriptions model =
 
         clockSub =
             Time.every Time.second UpdateTime
+
+        wsSub =
+            Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
     in
         case model.login of
             LoggedIn user ->
-                let
-                    wsSub =
-                        user.id
-                            |> Api.Chat.webSocketSubscription (Result.map List.singleton >> MessagesReceived) model.flags.wsUri
-                in
-                    Sub.batch [ wsSub, kbdSub, clockSub ]
+                Sub.batch [ wsSub (Just user.id), kbdSub, clockSub ]
 
             _ ->
-                Sub.batch [ kbdSub, clockSub ]
+                Sub.batch [ wsSub Nothing, kbdSub, clockSub ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -223,10 +226,13 @@ update msg model =
                     model ! []
 
         UserInfoResponse (Ok user) ->
-            { model | login = LoggedIn user }
-                ! [ Api.Chat.getMessages model.flags.baseUri user.id Nothing
+            let
+                cmd =
+                    Api.Chat.getMessages model.flags.baseUri (Just user.id) Nothing
                         |> Http.send (Result.mapError toString >> MessagesReceived)
-                  ]
+            in
+                { model | login = LoggedIn user }
+                    ! [ cmd ]
 
         UserInfoResponse (Err err) ->
             { model | error = Just (toString err) }

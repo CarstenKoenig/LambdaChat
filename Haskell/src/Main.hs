@@ -7,6 +7,7 @@ module Main
   ( main
   ) where
 
+import           Control.Concurrent (myThreadId, throwTo)
 import           Control.Lens (at, (&), (.~), (?~))
 import           Data.Proxy (Proxy(..))
 import           Data.Swagger (Swagger)
@@ -21,16 +22,22 @@ import           Servant.Swagger
 import qualified Servant.UserApi as Uapi
 import qualified State as S
 import           System.Environment (lookupEnv)
+import           System.Exit (ExitCode(ExitSuccess))
+import           System.Posix.Signals (installHandler, sigTERM, sigINT, Handler(CatchOnce))
 
 ----------------------------------------------------------------------
 -- entry point
 
 main :: IO ()
 main = do
-  -- initialize runtime with cache-size of 10 messages
-  handle <- S.initialize 10
+  -- initialize runtime with cache-size of 10 messages (try saved state first)
+  handle <- maybe (S.initialize 50) return =<< S.loadState "state.data"
 
   port <- maybe 80 read <$> lookupEnv "PORT"
+
+  tid <- myThreadId
+  _   <- installHandler sigTERM (CatchOnce $ saveAndExit handle tid) Nothing
+  _   <- installHandler sigINT (CatchOnce $ saveAndExit handle tid) Nothing
 
   putStrLn $ "serving app on http://localhost:" ++ show port
   Warp.run port $ Cors.cors (const $ Just policy) $ servantApp handle
@@ -39,6 +46,10 @@ main = do
     policy = Cors.simpleCorsResourcePolicy
         { Cors.corsRequestHeaders = ["Content-Type"]
         , Cors.corsMethods = "POST" : Cors.simpleMethods }
+    saveAndExit handle tid = do
+      putStrLn "shuting down..."
+      S.saveState handle "state.data"
+      throwTo tid ExitSuccess
 
 
 ----------------------------------------------------------------------

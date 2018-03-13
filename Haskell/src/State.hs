@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
@@ -6,8 +7,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 module State
   ( Handle
-  , registeredUsers
   , initialize
+  , saveState
+  , loadState
   , useChannel
   , useUsers
   ) where
@@ -17,6 +19,7 @@ import qualified Domain.Channel as Ch
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Reader as Rdr
 import qualified Domain.Users as Us
+import           Control.Exception (catch, SomeException)
 
 ----------------------------------------------------------------------
 -- global state
@@ -24,7 +27,7 @@ import qualified Domain.Users as Us
 data Handle = Handle
   { registeredUsers  :: Us.Handle
   , broadcastChannel :: Ch.Handle
-  }
+  } deriving (Read, Show)
 
 
 initialize :: MonadIO m => Int -> m Handle
@@ -32,6 +35,15 @@ initialize cacheSize = liftIO $ do
   regUsers <- Us.initialize
   chan <- Ch.initialize cacheSize
   return $ Handle regUsers chan
+
+
+saveState :: Handle -> FilePath -> IO ()
+saveState h fp = writeFile fp (show h)
+
+
+loadState :: FilePath -> IO (Maybe Handle)
+loadState fp =
+  (Just . read <$> readFile fp) `catch` (\(_ :: SomeException) -> return Nothing)
 
 
 useChannel :: Rdr.MonadReader Handle m => (Ch.Handle -> m a) -> m a
