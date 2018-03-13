@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -16,10 +17,14 @@ module Domain.Users
 import           Control.Concurrent.STM (atomically)
 import qualified Control.Concurrent.STM.TVar as STM
 import           Control.Lens (view, set, at, _Just, (^.), (.~), makeLenses)
+import           Control.Monad.Except (MonadError, throwError)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
+import qualified Data.Text as T
 import qualified Model.User as U
+import           Servant (ServantErr, errBody)
+import           Servant.Server (err406)
 import           System.IO.Unsafe (unsafePerformIO)
 import           Text.Read (Read(..))
 
@@ -67,22 +72,25 @@ getUserId handle user =
   readRegisteredUsers handle (view $ userIdFromName . at user)
 
 
-loginUser :: MonadIO m => Handle -> U.UserName -> Text -> m (Maybe U.UserId)
-loginUser handle name password = do
-  alreadyRegisteredId <- readRegisteredUsers handle (view (userIdFromName . at name))
-  alreadyRegistered <- maybe (return Nothing) (getUser handle) alreadyRegisteredId
-  case alreadyRegistered of
-    Nothing -> do
-      newId <- liftIO U.newUserId
-      let user = U.User newId name password True
-      modifyRegisteredUsers handle (set (userFromId . at newId) (Just user) . set (userIdFromName . at name) (Just newId))
-      return $ Just newId
-    Just found
-      | found^.U.userPassword == password -> do
-          modifyRegisteredUsers handle (userFromId . at (found^.U.userId) . _Just . U.userIsOnline .~ True)
-          return $ Just $ found^.U.userId
-      | otherwise ->
-          return Nothing
+loginUser :: (MonadError ServantErr m, MonadIO m) => Handle -> U.UserName -> Text -> m (Maybe U.UserId)
+loginUser handle name password =
+  if T.length name < 4
+    then throwError (err406 { errBody =  "your name should have at least 4 characters - sorry"})
+    else do
+      alreadyRegisteredId <- readRegisteredUsers handle (view (userIdFromName . at name))
+      alreadyRegistered <- maybe (return Nothing) (getUser handle) alreadyRegisteredId
+      case alreadyRegistered of
+        Nothing -> do
+          newId <- liftIO U.newUserId
+          let user = U.User newId name password True
+          modifyRegisteredUsers handle (set (userFromId . at newId) (Just user) . set (userIdFromName . at name) (Just newId))
+          return $ Just newId
+        Just found
+          | found^.U.userPassword == password -> do
+              modifyRegisteredUsers handle (userFromId . at (found^.U.userId) . _Just . U.userIsOnline .~ True)
+              return $ Just $ found^.U.userId
+          | otherwise ->
+            return Nothing
 
 
 logoutUser :: MonadIO m => Handle -> U.UserId -> m ()
