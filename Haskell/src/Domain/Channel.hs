@@ -79,14 +79,14 @@ newMessage :: MonadIO m => Handle -> Maybe U.UserId -> (Msgs.MessageId -> Msgs.M
 newMessage handle receiverId createMsg = liftIO $ atomically $ do
   (nextId, msgs) <- STM.readTVar (recentMessages handle)
   let msg = createMsg nextId
-      msgs' = take (messageCacheSize handle) $ msgs ++ [(nextId, receiverId, msg)]
+      msgs' = take (messageCacheSize handle) $ [(nextId, receiverId, msg)] : msgs
   STM.writeTVar (recentMessages handle) (nextId + 1, msgs')
   return msg
 
 
 getCachedMessages :: MonadIO m => Maybe U.UserId -> Handle -> m [(Msgs.MessageId, Msgs.Message)]
 getCachedMessages uid handle = liftIO $ atomically $
-  reverse . mapMaybe accessible . snd
+  mapMaybe accessible . snd
   <$> STM.readTVar (recentMessages handle)
   where
     accessible (mid, Nothing, msg) =
