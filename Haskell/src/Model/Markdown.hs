@@ -49,7 +49,7 @@ renderHtml (Markdown mdText) =
   where
     markdownDef = def
       { msBlockCodeRenderer = renderer
-      , msXssProtect        = False
+      , msXssProtect        = True
       }
     renderer lang (src,_) = renderLang lang src
 
