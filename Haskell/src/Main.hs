@@ -30,8 +30,9 @@ import           System.Posix.Signals (installHandler, sigTERM, sigINT, Handler(
 
 main :: IO ()
 main = do
-  -- initialize runtime with cache-size of 10 messages (try saved state first)
-  handle <- maybe (S.initialize 50) return =<< S.loadState "state.data"
+  -- initialize runtime with cache-size of 50 messages (try saved state first)
+  -- that are valid for 1 hour
+  handle <- maybe (S.initialize 50 (60*60)) return =<< S.loadState "state.data"
 
   port <- maybe 80 read <$> lookupEnv "PORT"
 

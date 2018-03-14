@@ -28,7 +28,7 @@ import           Data.ByteString.Lazy (ByteString)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Maybe (mapMaybe)
-import           Data.Time (UTCTime, getCurrentTime, diffUTCTime)
+import           Data.Time (UTCTime, NominalDiffTime, getCurrentTime, diffUTCTime)
 import qualified Model.Markdown as MD
 import qualified Model.Messages as Msgs
 import qualified Model.User as U
@@ -44,6 +44,7 @@ import           Text.Read (Read(..))
 data Handle = Handle
   { broadcastChannel :: STM.TChan ChanMessage
   , messageCacheSize :: Int
+  , cacheDuration    :: NominalDiffTime
   , recentMessages   :: STM.TVar (Msgs.MessageId, [(Msgs.MessageId, Maybe U.UserId, Msgs.Message)])
   , lastPosted       :: STM.TVar (Map.Map U.UserId UTCTime)
   }
@@ -52,42 +53,48 @@ data Handle = Handle
 instance Read Handle where
   readPrec = intoHandle <$> readPrec
     where
-      intoHandle (cSz, msgs, posted) = Handle
+      intoHandle :: (Int, Int, (Msgs.MessageId, [(Msgs.MessageId, Maybe U.UserId, Msgs.Message)]), Map.Map U.UserId UTCTime) -> Handle
+      intoHandle (cSz, dur, msgs, posted) = Handle
         (unsafePerformIO $ STM.newTChanIO)
         cSz
+        (fromIntegral dur)
         (unsafePerformIO $ STM.newTVarIO msgs)
         (unsafePerformIO $ STM.newTVarIO posted)
 
 instance Show Handle where
-  show (Handle _ cSz msgs posted) =
-    show (cSz, unsafePerformIO $ STM.readTVarIO msgs, unsafePerformIO $ STM.readTVarIO posted)
+  show (Handle _ cSz dur msgs posted) =
+    show (cSz, (ceiling dur :: Int), unsafePerformIO $ STM.readTVarIO msgs, unsafePerformIO $ STM.readTVarIO posted)
 
 
 data ChanMessage =
   ChanMessage (Maybe U.UserId) ByteString
 
 
-initialize :: Int -> IO Handle
-initialize cacheSize = do
+initialize :: Int -> NominalDiffTime -> IO Handle
+initialize cacheSize duration = do
   chan      <- STM.newBroadcastTChanIO
   msgMap    <- STM.newTVarIO (0, [])
   postedMap <- STM.newTVarIO Map.empty
-  return $ Handle chan cacheSize msgMap postedMap
+  return $ Handle chan cacheSize duration msgMap postedMap
 
 
 newMessage :: MonadIO m => Handle -> Maybe U.UserId -> (Msgs.MessageId -> Msgs.Message) -> m Msgs.Message
-newMessage handle receiverId createMsg = liftIO $ atomically $ do
-  (nextId, msgs) <- STM.readTVar (recentMessages handle)
-  let msg = createMsg nextId
-      msgs' = take (messageCacheSize handle) $ (nextId, receiverId, msg) : msgs
-  STM.writeTVar (recentMessages handle) (nextId + 1, msgs')
-  return msg
+newMessage handle receiverId createMsg = do
+  cleanCache handle
+  liftIO $ atomically $ do
+    (nextId, msgs) <- STM.readTVar (recentMessages handle)
+    let msg = createMsg nextId
+        msgs' = take (messageCacheSize handle) $ (nextId, receiverId, msg) : msgs
+    STM.writeTVar (recentMessages handle) (nextId + 1, msgs')
+    return msg
 
 
 getCachedMessages :: MonadIO m => Maybe U.UserId -> Handle -> m [(Msgs.MessageId, Msgs.Message)]
-getCachedMessages uid handle = liftIO $ atomically $
-  mapMaybe accessible . snd
-  <$> STM.readTVar (recentMessages handle)
+getCachedMessages uid handle = do
+  cleanCache handle
+  liftIO $ atomically $
+    mapMaybe accessible . snd
+    <$> STM.readTVar (recentMessages handle)
   where
     accessible (mid, Nothing, msg) =
       Just (mid, msg)
@@ -95,6 +102,14 @@ getCachedMessages uid handle = liftIO $ atomically $
       if uid == recid
       then Just (mid,msg)
       else Nothing
+
+
+cleanCache :: MonadIO m => Handle -> m ()
+cleanCache handle = liftIO $ do
+  now <- getCurrentTime
+  let stillValid (_,_,msg) =
+        now `diffUTCTime` Msgs._msgTime msg <= cacheDuration handle
+  atomically $ STM.modifyTVar (recentMessages handle) (\(nextId, msgs) -> (nextId, filter stillValid msgs))
 
 
 broadcast :: (MonadError ServantErr m, MonadIO m) => Handle -> U.User -> MD.Markdown -> m ()
@@ -132,7 +147,7 @@ assertNoPostSpam handle userId time = do
 
 
 connectUser :: forall m . (MonadCatch m, MonadIO m) => Handle -> Maybe (U.User) -> WS.Connection -> m ()
-connectUser (Handle broadcastChan _ _ _) user connection = do
+connectUser (Handle broadcastChan _ _ _ _) user connection = do
   liftIO $ putStrLn $ "user " ++ show (maybe "<annonymous>" U._userName user) ++ " connected"
   go `catch` closed
   where

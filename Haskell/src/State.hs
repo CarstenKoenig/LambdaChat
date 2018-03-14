@@ -18,10 +18,10 @@ module State
 import           Control.Exception (catch, SomeException)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Reader as Rdr
+import           Data.Time (NominalDiffTime)
 import qualified Domain.Channel as Ch
 import qualified Domain.Users as Us
 import           Text.Read (readMaybe)
-
 ----------------------------------------------------------------------
 -- global state
 
@@ -31,10 +31,10 @@ data Handle = Handle
   } deriving (Read, Show)
 
 
-initialize :: MonadIO m => Int -> m Handle
-initialize cacheSize = liftIO $ do
+initialize :: MonadIO m => Int -> NominalDiffTime -> m Handle
+initialize cacheSize cacheDuration = liftIO $ do
   regUsers <- Us.initialize
-  chan <- Ch.initialize cacheSize
+  chan <- Ch.initialize cacheSize cacheDuration
   return $ Handle regUsers chan
 
 
